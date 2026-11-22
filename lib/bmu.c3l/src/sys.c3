@@ -151,7 +151,7 @@ fn int list_dir(String dir, Entry[] out, bool hidden) => @pool()
 		n++;
 	}
 	c_closedir(d);
-	// In-place O(n log n) sorting instead of quadratic insertion sort.
+	// In-place quicksort (average O(n log n)) instead of quadratic insertion sort.
 	sort::quicksort(out[:n], &entry_compare);
 	return n;
 }
