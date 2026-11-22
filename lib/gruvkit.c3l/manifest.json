@@ -1,0 +1,6 @@
+{
+  "provides": "gruvkit",
+  "version": "0.1.0",
+  "langrev": "1",
+  "sources": ["src/**"]
+}

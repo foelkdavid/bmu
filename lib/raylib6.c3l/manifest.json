@@ -1,0 +1,10 @@
+{
+  "provides": "raylib6",
+  "targets": {
+    "linux-x64": {
+      "link-args": [],
+      "dependencies": [],
+      "linked-libraries": ["raylib", "X11", "Xrandr", "Xinerama", "Xi", "Xcursor", "m"]
+    }
+  }
+}

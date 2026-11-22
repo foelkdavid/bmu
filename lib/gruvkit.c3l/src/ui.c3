@@ -1,0 +1,945 @@
+module gruvkit::ui;
+import std::math, std::core::string;
+import raylib6::rl;
+import gruvkit::txt;
+
+// gruvkit::ui - small immediate-mode widget kit for raylib. Gruvbox dark palette,
+// embedded Nerd Font (CodeNewRoman Nerd Font Propo, OFL - see ../assets/README.txt).
+// Everything is drawn in LOGICAL pixels; `scale` maps them to physical pixels.
+// Docs: docs/API.md (every function), docs/CONCEPTS.md (layers, ids, buffers).
+
+alias Color = rl::RLColor;
+
+const Color BG_HARD = { 29, 32, 33, 255 };    // bg0_h #1d2021
+const Color BG      = { 40, 40, 40, 255 };    // bg0   #282828
+const Color BG1     = { 60, 56, 54, 255 };    // bg1   #3c3836
+const Color BG2     = { 80, 73, 69, 255 };    // bg2   #504945
+const Color BG3     = { 102, 92, 84, 255 };   // bg3   #665c54
+const Color BG4     = { 124, 111, 100, 255 }; // bg4   #7c6f64
+const Color FG      = { 235, 219, 178, 255 }; // fg    #ebdbb2
+const Color FG4     = { 168, 153, 132, 255 }; // fg4   #a89984
+const Color GRAY    = { 146, 131, 116, 255 }; // gray  #928374
+const Color RED     = { 251, 73, 52, 255 };   // #fb4934
+const Color GREEN   = { 184, 187, 38, 255 };  // #b8bb26
+const Color YELLOW  = { 250, 189, 47, 255 };  // #fabd2f
+const Color BLUE    = { 131, 165, 152, 255 }; // #83a598
+const Color PURPLE  = { 211, 134, 155, 255 }; // #d3869b
+const Color AQUA    = { 142, 192, 124, 255 }; // #8ec07c
+const Color ORANGE  = { 254, 128, 25, 255 };  // #fe8019
+const Color DIM_RED    = { 204, 36, 29, 255 };  // #cc241d
+const Color DIM_GREEN  = { 152, 151, 26, 255 }; // #98971a
+const Color DIM_YELLOW = { 215, 153, 33, 255 }; // #d79921
+
+// Nerd Font glyphs (Font Awesome range)
+const String I_PLAY   = "";
+const String I_STOP   = "";
+const String I_PLUS   = "";
+const String I_FOLDER = "";
+const String I_FOLDER_OPEN = "";
+const String I_FILE   = "";
+const String I_GEAR   = "";
+const String I_SEARCH = "";
+const String I_TRASH  = "";
+const String I_UP     = "";
+const String I_HOME   = "";
+const String I_HDD    = "";
+const String I_GAMEPAD = "";
+const String I_WINDOWS = "";
+const String I_CLOCK  = "";
+const String I_CHECK  = "";
+const String I_TIMES  = "";
+const String I_DOWN   = "";
+const String I_RIGHT  = "";
+const String I_REFRESH = "";
+const String I_TERMINAL = "";
+const String I_IMAGE  = "";
+const String I_WRENCH = "";
+const String I_STEAM  = "";
+const String I_BOLT   = "";
+const String I_WARN   = "";
+const String I_INFO   = "";
+const String I_LIST   = "";
+const String I_EYE    = "";
+const String I_STAR   = "";
+
+const int[*] ICON_CODEPOINTS = {
+	0xF04B, 0xF04D, 0xF067, 0xF07B, 0xF07C, 0xF15B, 0xF013, 0xF002, 0xF1F8, 0xF062,
+	0xF015, 0xF0A0, 0xF11B, 0xF17A, 0xF017, 0xF00C, 0xF00D, 0xF078, 0xF054, 0xF021,
+	0xF120, 0xF03E, 0xF0AD, 0xF1B6, 0xF0E7, 0xF071, 0xF05A, 0xF03A, 0xF06E, 0xF005,
+	0x2022, 0x2014, 0x2026, 0x00B7,
+};
+
+const char[*] FONT_DATA = $embed("../assets/ui.otf");
+rl::RLFont font;
+bool has_font;
+
+<*
+ Load the embedded UI font (needs an open window). Only the glyphs baked here can
+ be drawn: ASCII, Latin-1, the I_* icons and `extra` (any other codepoints, e.g.
+ more Nerd Font icons). Without a font, text falls back to raylib's default font.
+*>
+fn void load_font(int[] extra = {})
+{
+	int[1024] cps;
+	int n = 0;
+	for (int c = 32; c < 127; c++) cps[n++] = c;
+	for (int c = 160; c < 256; c++) cps[n++] = c;
+	foreach (c : ICON_CODEPOINTS) cps[n++] = c;
+	foreach (c : extra) if (n < cps.len) cps[n++] = c;
+	font = rl::load_font_from_memory(".otf", &FONT_DATA[0], (int)FONT_DATA.len, 64, &cps, n);
+	if (font.texture.id && font.glyph_count > 0)
+	{
+		rl::gen_texture_mipmaps(&font.texture);
+		font.texture.set_filter(rl::RLTextureFilter.TRILINEAR);
+		has_font = true;
+	}
+}
+
+fn void unload_font()
+{
+	if (has_font) rl::unload_font(font);
+	has_font = false;
+}
+
+// Text -----------------------------------------------------------------------
+
+fn void text(String s, float x, float y, float size = 15, Color color = FG) => @pool()
+{
+	ZString zs = s.zstr_tcopy();
+	if (has_font) { rl::draw_text_ex(font, zs, { x, y }, size, 0, color); return; }
+	rl::draw_text(zs, (int)x, (int)y, (int)size, color);
+}
+
+fn float text_w(String s, float size = 15) => @pool()
+{
+	ZString zs = s.zstr_tcopy();
+	if (has_font) return rl::measure_text_ex(font, zs, size, 0)[0];
+	return (float)rl::measure_text(zs, (int)size);
+}
+
+// Draw text clipped to a width with a trailing ellipsis.
+fn void text_fit(String s, float x, float y, float w, float size = 15, Color color = FG) => @pool()
+{
+	if (text_w(s, size) <= w) { text(s, x, y, size, color); return; }
+	usz n = s.len;
+	while (n > 0 && text_w(string::tformat("%s…", s[:n]), size) > w)
+	{
+		n--;
+		while (n > 0 && (s[n] & 0xC0) == 0x80) n--; // keep UTF-8 intact
+	}
+	text(string::tformat("%s…", s[:n]), x, y, size, color);
+}
+
+// Draw only the tail of a long string (paths), prefixed with an ellipsis.
+fn void text_tail(String s, float x, float y, float w, float size = 15, Color color = FG) => @pool()
+{
+	if (text_w(s, size) <= w) { text(s, x, y, size, color); return; }
+	usz start = 0;
+	while (start < s.len && text_w(string::tformat("…%s", s[start..]), size) > w) start++;
+	while (start < s.len && (s[start] & 0xC0) == 0x80) start++;
+	text(string::tformat("…%s", s[start..]), x, y, size, color);
+}
+
+// Input state -----------------------------------------------------------------
+
+int layer;          // layer currently being drawn
+int top;            // only widgets on this layer react to input
+bool popup_open;    // dropdown popup owns input when open
+const int POPUP_LAYER = 99;
+Rect clip = { -1e6, -1e6, 2e6, 2e6 };
+rl::RLMouseCursor cursor;
+bool consumed;      // a click was handled this frame
+double now;
+
+float scale = 1;     // logical px -> physical px
+
+fn float sw() => (float)rl::get_screen_width() / scale;
+fn float sh() => (float)rl::get_screen_height() / scale;
+
+fn void scissor(int x, int y, int w, int h)
+{
+	rl::begin_scissor_mode((int)((float)x * scale), (int)((float)y * scale), (int)((float)w * scale + 0.99f), (int)((float)h * scale + 0.99f));
+}
+
+fn void set_scale(float s)
+{
+	scale = math::clamp(s, 0.75f, 3.0f);
+	rl::set_mouse_scale(1 / scale, 1 / scale);
+}
+
+// Reasonable default: 1.0 at 1440p and below, 1.5 at 4K.
+fn float auto_scale()
+{
+	int mh = rl::get_monitor_height(rl::get_current_monitor());
+	if (mh <= 0) return 1;
+	return math::clamp(math::round((float)mh / 1440 * 4) / 4, 1.0f, 2.5f);
+}
+
+fn void begin_frame()
+{
+	cursor = DEFAULT;
+	consumed = false;
+	now = rl::get_time();
+	layer = 0;
+	if (popup_open) top = POPUP_LAYER;
+}
+
+fn void end_frame()
+{
+	draw_popup();
+	draw_toast();
+	rl::set_mouse_cursor(cursor);
+}
+
+fn bool live() => layer == top && !consumed;
+
+fn bool point_in(rl::RLVector2 p, Rect r) => p[0] >= r.x && p[0] < r.x + r.width && p[1] >= r.y && p[1] < r.y + r.height;
+
+fn bool hover(Rect r)
+{
+	if (!live()) return false;
+	rl::RLVector2 m = rl::get_mouse_position();
+	return point_in(m, r) && point_in(m, clip);
+}
+
+fn bool clicked(Rect r)
+{
+	if (hover(r) && rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT))
+	{
+		consumed = true;
+		return true;
+	}
+	return false;
+}
+
+fn bool right_clicked(Rect r) => hover(r) && rl::is_mouse_button_pressed(rl::RLMouseButton.RIGHT);
+
+// Drawing helpers ---------------------------------------------------------------
+
+fn void panel(Rect r, Color c, float round = 0.0f)
+{
+	if (round <= 0) { rl::draw_rectangle_rec(r, c); return; }
+	float m = r.width < r.height ? r.width : r.height;
+	rl::draw_rectangle_rounded(r, round * 2 / m, 8, c);
+}
+
+fn void outline(Rect r, Color c, float round = 0.0f, float thick = 1)
+{
+	if (round <= 0) { rl::draw_rectangle_lines_ex(r, thick, c); return; }
+	float m = r.width < r.height ? r.width : r.height;
+	rl::draw_rectangle_rounded_lines_ex(r, round * 2 / m, 8, thick, c);
+}
+
+fn void hline(float x, float y, float w, Color c = BG1) => rl::draw_rectangle_rec({ x, y, w, 1 }, c);
+
+fn void begin_clip(Rect r)
+{
+	clip = r;
+	scissor((int)r.x, (int)r.y, (int)r.width, (int)r.height);
+}
+
+fn void end_clip()
+{
+	rl::end_scissor_mode();
+	clip = { -1e6, -1e6, 2e6, 2e6 };
+}
+
+// Buttons -----------------------------------------------------------------------
+
+enum Style
+{
+	NORMAL,
+	PRIMARY,
+	GOOD,
+	DANGER,
+	GHOST,
+}
+
+fn bool button(Rect r, String label, Style style = NORMAL, String icon = "", bool enabled = true)
+{
+	bool h = enabled && hover(r);
+	if (h) cursor = POINTING_HAND;
+	Color bg;
+	Color fg;
+	switch (style)
+	{
+		case NORMAL:  bg = h ? BG2 : BG1;              fg = FG;
+		case PRIMARY: bg = h ? YELLOW : DIM_YELLOW;    fg = BG_HARD;
+		case GOOD:    bg = h ? GREEN : DIM_GREEN;      fg = BG_HARD;
+		case DANGER:  bg = h ? RED : DIM_RED;          fg = BG_HARD;
+		case GHOST:   bg = h ? BG1 : { 0, 0, 0, 0 };   fg = h ? FG : FG4;
+	}
+	if (!enabled) { bg = BG1; fg = BG3; }
+	panel(r, bg, 5);
+	float size = r.height >= 44 ? 20 : 15;
+	float iw = icon.len ? text_w(icon, size) + (label.len ? 8 : 0) : 0;
+	float tw = text_w(label, size) + iw;
+	float x = r.x + (r.width - tw) / 2;
+	float y = r.y + (r.height - size) / 2 - 1;
+	if (icon.len) text(icon, x, y, size, fg);
+	text(label, x + iw, y, size, fg);
+	return enabled && clicked(r);
+}
+
+fn bool icon_button(Rect r, String icon, Color color = FG4, String tip = "")
+{
+	bool h = hover(r);
+	if (h)
+	{
+		cursor = POINTING_HAND;
+		panel(r, BG1, 5);
+		if (tip.len) tooltip(tip);
+	}
+	float s = r.height * 0.5f;
+	text(icon, r.x + (r.width - text_w(icon, s)) / 2, r.y + (r.height - s) / 2 - 1, s, h ? FG : color);
+	return clicked(r);
+}
+
+char[256] tip_text;
+fn void tooltip(String s) => txt::set(&tip_text, s);
+
+fn bool checkbox(float x, float y, String label, bool* v, String hint = "")
+{
+	float w = 22 + 10 + text_w(label, 15);
+	Rect r = { x, y, w, 24 };
+	bool h = hover(r);
+	if (h) { cursor = POINTING_HAND; if (hint.len) tooltip(hint); }
+	Rect box = { x, y + 2, 20, 20 };
+	panel(box, *v ? DIM_YELLOW : (h ? BG2 : BG1), 4);
+	if (*v) text(I_CHECK, x + 4, y + 5, 13, BG_HARD);
+	text(label, x + 30, y + 4, 15, *v ? FG : FG4);
+	if (clicked(r)) { *v = !*v; return true; }
+	return false;
+}
+
+// Text input ----------------------------------------------------------------------
+// One field is focused at a time; caret/anchor/undo belong to that field.
+// Selection is [min(anchor, caret), max(anchor, caret)).
+
+int focus = -1;     // id of the focused input
+usz caret;
+usz anchor;
+double caret_blink;
+float input_off;    // horizontal scroll of the focused field
+bool dragging;
+double last_click_time;
+usz last_click_pos;
+int click_count;
+
+const MAX_UNDO = 48;
+struct Snapshot
+{
+	char[1024] text;
+	usz caret;
+}
+Snapshot[MAX_UNDO] undo_stack;
+int undo_count;
+Snapshot[MAX_UNDO] redo_stack;
+int redo_count;
+int last_edit_kind;  // coalesces consecutive typing into one undo step
+double last_edit_time;
+
+fn bool focused(int id) => focus == id;
+fn void unfocus() => focus = -1;
+fn void focus_on(int id, char[] buf)
+{
+	focus = id;
+	caret = txt::view(buf).len;
+	anchor = 0;            // focusing via shortcut selects everything
+	caret_blink = now;
+	input_off = 0;
+	undo_count = 0;
+	redo_count = 0;
+	last_edit_kind = 0;
+}
+
+// Keyboard layout awareness: raylib key codes are US positions, so Ctrl+Z on
+// QWERTZ would be the key labelled Y. GLFW knows which letter each key produces.
+extern fn ZString glfw_key_name(CInt key, CInt scancode) @cname("glfwGetKeyName");
+int[26] letter_keys;
+
+fn void map_layout()
+{
+	for (int k = 0; k < 26; k++) letter_keys[k] = 65 + k;
+	for (int code = 65; code <= 90; code++)
+	{
+		ZString name = glfw_key_name(code, 0);
+		if (!name || !name[0] || name[1]) continue;
+		char c = txt::lower(name[0]);
+		if (c >= 'a' && c <= 'z') letter_keys[c - 'a'] = code;
+	}
+}
+
+fn bool letter(char c) => rl::is_key_pressed((rl::RLKeyboardKey)letter_keys[c - 'a']);
+fn bool ctrl_down() => rl::is_key_down(rl::RLKeyboardKey.LEFT_CONTROL) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_CONTROL);
+fn bool shift_down() => rl::is_key_down(rl::RLKeyboardKey.LEFT_SHIFT) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_SHIFT);
+
+fn bool has_sel() => anchor != caret;
+fn usz sel_lo() => anchor < caret ? anchor : caret;
+fn usz sel_hi() => anchor < caret ? caret : anchor;
+
+fn void push_snapshot(Snapshot[] stack, int* count, char[] buf)
+{
+	if (*count == MAX_UNDO)
+	{
+		for (int i = 1; i < MAX_UNDO; i++) stack[i - 1] = stack[i];
+		(*count)--;
+	}
+	txt::set(&stack[*count].text, txt::view(buf));
+	stack[*count].caret = caret;
+	(*count)++;
+}
+
+// Record undo state before an edit. kind 1 = typing (coalesced), 2 = other.
+fn void before_edit(char[] buf, int kind)
+{
+	bool coalesce = kind == 1 && last_edit_kind == 1 && now - last_edit_time < 1.0 && !has_sel();
+	if (!coalesce) push_snapshot(&undo_stack, &undo_count, buf);
+	redo_count = 0;
+	last_edit_kind = kind;
+	last_edit_time = now;
+}
+
+fn void restore(char[] buf, Snapshot* s)
+{
+	txt::set(buf, txt::view(&s.text));
+	caret = s.caret;
+	usz len = txt::view(buf).len;
+	if (caret > len) caret = len;
+	anchor = caret;
+	last_edit_kind = 0;
+}
+
+fn void delete_sel(char[] buf)
+{
+	usz lo = sel_lo();
+	remove_range(buf, lo, sel_hi());
+	caret = lo;
+	anchor = lo;
+}
+
+fn void copy_sel(char[] buf) => @pool()
+{
+	if (!has_sel()) return;
+	String s = txt::view(buf)[sel_lo()..sel_hi() - 1];
+	rl::set_clipboard_text(s.zstr_tcopy());
+}
+
+fn void select_word(char[] buf, usz at)
+{
+	usz lo = at;
+	usz hi = at;
+	while (lo > 0 && !word_sep(buf[lo - 1])) lo--;
+	while (buf[hi] != 0 && !word_sep(buf[hi])) hi++;
+	anchor = lo;
+	caret = hi;
+}
+
+<*
+ Single line text field. Returns true when the content changed.
+ `submitted` (optional) is set when Enter was pressed.
+*>
+fn bool input(int id, Rect r, char[] buf, String placeholder = "", bool* submitted = null, String icon = "")
+{
+	float pad = 10;
+	float tx = r.x + pad + (icon.len ? 24 : 0);
+	float avail = r.x + r.width - pad - tx;
+
+	bool h = hover(r);
+	if (h) cursor = IBEAM;
+	if (rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT) && live())
+	{
+		if (h)
+		{
+			bool was = focus == id;
+			if (!was) { focus_on(id, buf); input_off = 0; }
+			usz pos = caret_at(txt::view(buf), rl::get_mouse_position()[0] - tx + input_off);
+			if (was && now - last_click_time < 0.4 && pos == last_click_pos) { click_count++; } else { click_count = 1; }
+			last_click_time = now;
+			last_click_pos = pos;
+			caret = pos;
+			if (click_count == 2) { select_word(buf, pos); }
+			else if (click_count >= 3) { anchor = 0; caret = txt::view(buf).len; }
+			else if (!(was && shift_down())) { anchor = pos; }
+			dragging = click_count == 1;
+			caret_blink = now;
+			consumed = true;
+		}
+		else if (focus == id) { focus = -1; }
+	}
+	bool f = focus == id && layer == top;
+	if (f && dragging)
+	{
+		if (rl::is_mouse_button_down(rl::RLMouseButton.LEFT))
+		{
+			caret = caret_at(txt::view(buf), rl::get_mouse_position()[0] - tx + input_off);
+		}
+		else
+		{
+			dragging = false;
+		}
+	}
+	panel(r, BG_HARD, 5);
+	outline(r, f ? DIM_YELLOW : (h ? BG2 : BG1), 5, 1);
+
+	bool changed = false;
+	if (f)
+	{
+		usz len = txt::view(buf).len;
+		if (caret > len) caret = len;
+		if (anchor > len) anchor = len;
+		bool ctrl = ctrl_down();
+		bool shift = shift_down();
+
+		int ch = rl::get_char_pressed();
+		while (ch > 0)
+		{
+			if (!ctrl)
+			{
+				before_edit(buf, 1);
+				if (has_sel()) delete_sel(buf);
+				changed |= insert_codepoint(buf, ch);
+				anchor = caret;
+			}
+			ch = rl::get_char_pressed();
+		}
+		if (repeat(rl::RLKeyboardKey.BACKSPACE) && (caret > 0 || has_sel()))
+		{
+			before_edit(buf, 2);
+			if (!has_sel()) anchor = ctrl ? word_left(buf, caret) : prev_char(buf, caret);
+			delete_sel(buf);
+			changed = true;
+		}
+		if (repeat(rl::RLKeyboardKey.DELETE) && (buf[caret] != 0 || has_sel()))
+		{
+			before_edit(buf, 2);
+			if (!has_sel()) anchor = ctrl ? word_right(buf, caret) : next_char(buf, caret);
+			delete_sel(buf);
+			changed = true;
+		}
+
+		// movement; Shift extends the selection
+		bool moved = false;
+		usz target = caret;
+		if (repeat(rl::RLKeyboardKey.LEFT))
+		{
+			if (has_sel() && !shift) { target = sel_lo(); } else { target = ctrl ? word_left(buf, caret) : prev_char(buf, caret); }
+			moved = true;
+		}
+		if (repeat(rl::RLKeyboardKey.RIGHT))
+		{
+			if (has_sel() && !shift) { target = sel_hi(); } else { target = ctrl ? word_right(buf, caret) : next_char(buf, caret); }
+			moved = true;
+		}
+		if (rl::is_key_pressed(rl::RLKeyboardKey.HOME) || rl::is_key_pressed(rl::RLKeyboardKey.UP)) { target = 0; moved = true; }
+		if (rl::is_key_pressed(rl::RLKeyboardKey.END) || rl::is_key_pressed(rl::RLKeyboardKey.DOWN)) { target = txt::view(buf).len; moved = true; }
+		if (moved)
+		{
+			caret = target;
+			if (!shift) anchor = caret;
+			caret_blink = now;
+			last_edit_kind = 0;
+		}
+
+		if (ctrl)
+		{
+			if (letter('a')) { anchor = 0; caret = txt::view(buf).len; }
+			if (letter('c')) copy_sel(buf);
+			if (letter('x') && has_sel())
+			{
+				before_edit(buf, 2);
+				copy_sel(buf);
+				delete_sel(buf);
+				changed = true;
+			}
+			if (letter('v') || (shift && rl::is_key_pressed(rl::RLKeyboardKey.INSERT)))
+			{
+				ZString clip_text = rl::get_clipboard_text();
+				if (clip_text && clip_text[0])
+				{
+					before_edit(buf, 2);
+					if (has_sel()) delete_sel(buf);
+					foreach (c : clip_text.str_view())
+					{
+						if (c == '\n' || c == '\r' || c == '\t') continue;
+						insert_byte(buf, c);
+					}
+					anchor = caret;
+					changed = true;
+				}
+			}
+			bool redo = letter('y') || (shift && letter('z'));
+			if (letter('z') && !shift && undo_count > 0)
+			{
+				push_snapshot(&redo_stack, &redo_count, buf);
+				restore(buf, &undo_stack[--undo_count]);
+				changed = true;
+			}
+			else if (redo && redo_count > 0)
+			{
+				push_snapshot(&undo_stack, &undo_count, buf);
+				restore(buf, &redo_stack[--redo_count]);
+				changed = true;
+			}
+			if (letter('u'))
+			{
+				before_edit(buf, 2);
+				buf[0] = 0;
+				caret = 0;
+				anchor = 0;
+				changed = true;
+			}
+		}
+		if (rl::is_key_pressed(rl::RLKeyboardKey.ENTER) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ENTER))
+		{
+			if (submitted) *submitted = true;
+		}
+		if (rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE))
+		{
+			if (has_sel()) { anchor = caret; } else { focus = -1; }
+		}
+	}
+
+	String s = txt::view(buf);
+	if (icon.len) text(icon, r.x + pad, r.y + (r.height - 14) / 2, 14, GRAY);
+	float ty = r.y + (r.height - 15) / 2 - 1;
+	Rect saved = clip;
+	scissor((int)tx - 2, (int)r.y, (int)avail + 4, (int)r.height);
+	if (s.len == 0 && !f)
+	{
+		text(placeholder, tx, ty, 15, BG4);
+	}
+	else if (f)
+	{
+		// keep a stable scroll offset that only moves to keep the caret in view
+		float cw = text_w(s[:caret], 15);
+		float total = text_w(s, 15);
+		if (cw - input_off > avail - 4) input_off = cw - avail + 4;
+		if (cw - input_off < 0) input_off = cw;
+		if (input_off > 0 && total - input_off < avail - 4) input_off = math::max(0.0f, total - avail + 4);
+		if (has_sel())
+		{
+			float x0 = text_w(s[:sel_lo()], 15);
+			float x1 = text_w(s[:sel_hi()], 15);
+			rl::draw_rectangle_rec({ tx - input_off + x0, r.y + 6, x1 - x0, r.height - 12 }, { 215, 153, 33, 110 });
+		}
+		text(s, tx - input_off, ty, 15, FG);
+		if ((now - caret_blink) - math::floor(now - caret_blink) < 0.6)
+		{
+			rl::draw_rectangle_rec({ tx - input_off + cw, r.y + 7, 2, r.height - 14 }, YELLOW);
+		}
+	}
+	else
+	{
+		// unfocused: long values (paths) show their end
+		float total = text_w(s, 15);
+		text(s, tx - (total > avail ? total - avail : 0), ty, 15, FG);
+	}
+	rl::end_scissor_mode();
+	if (saved.width < 1e6) scissor((int)saved.x, (int)saved.y, (int)saved.width, (int)saved.height);
+	return changed;
+}
+
+// Byte index of the character boundary closest to pixel offset `x`.
+fn usz caret_at(String s, float x)
+{
+	if (x <= 0) return 0;
+	usz best = s.len;
+	float prev = 0;
+	usz i = 0;
+	while (i < s.len)
+	{
+		usz n = i + 1;
+		while (n < s.len && (s[n] & 0xC0) == 0x80) n++;
+		float w = text_w(s[:n], 15);
+		if (x < w)
+		{
+			best = x - prev < w - x ? i : n;
+			break;
+		}
+		prev = w;
+		i = n;
+	}
+	return best;
+}
+
+fn usz prev_char(char[] buf, usz i)
+{
+	if (i == 0) return 0;
+	i--;
+	while (i > 0 && (buf[i] & 0xC0) == 0x80) i--;
+	return i;
+}
+
+fn usz next_char(char[] buf, usz i)
+{
+	if (buf[i] == 0) return i;
+	i++;
+	while (buf[i] != 0 && (buf[i] & 0xC0) == 0x80) i++;
+	return i;
+}
+
+fn bool word_sep(char c) => c == ' ' || c == '/' || c == '_' || c == '-' || c == '.' || c == '=';
+
+fn usz word_left(char[] buf, usz i)
+{
+	while (i > 0 && word_sep(buf[i - 1])) i--;
+	while (i > 0 && !word_sep(buf[i - 1])) i--;
+	return i;
+}
+
+fn usz word_right(char[] buf, usz i)
+{
+	while (buf[i] != 0 && word_sep(buf[i])) i++;
+	while (buf[i] != 0 && !word_sep(buf[i])) i++;
+	return i;
+}
+
+fn bool repeat(rl::RLKeyboardKey k) => rl::is_key_pressed(k) || rl::is_key_pressed_repeat(k);
+
+fn void remove_range(char[] buf, usz start, usz end)
+{
+	usz len = txt::view(buf).len;
+	for (usz i = 0; end + i <= len; i++) buf[start + i] = buf[end + i];
+	caret = start;
+	caret_blink = now;
+}
+
+fn bool insert_byte(char[] buf, char c)
+{
+	usz len = txt::view(buf).len;
+	if (len + 2 >= buf.len) return false;
+	for (usz i = len + 1; i > caret; i--) buf[i] = buf[i - 1];
+	buf[caret++] = c;
+	caret_blink = now;
+	return true;
+}
+
+fn bool insert_codepoint(char[] buf, int cp)
+{
+	char[4] u;
+	usz n;
+	if (cp < 0x80) { u[0] = (char)cp; n = 1; }
+	else if (cp < 0x800) { u[0] = (char)(0xC0 | (cp >> 6)); u[1] = (char)(0x80 | (cp & 0x3F)); n = 2; }
+	else if (cp < 0x10000) { u[0] = (char)(0xE0 | (cp >> 12)); u[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); u[2] = (char)(0x80 | (cp & 0x3F)); n = 3; }
+	else { u[0] = (char)(0xF0 | (cp >> 18)); u[1] = (char)(0x80 | ((cp >> 12) & 0x3F)); u[2] = (char)(0x80 | ((cp >> 6) & 0x3F)); u[3] = (char)(0x80 | (cp & 0x3F)); n = 4; }
+	if (txt::view(buf).len + n + 1 >= buf.len) return false;
+	for (usz i = 0; i < n; i++) insert_byte(buf, u[i]);
+	return true;
+}
+
+// Dropdown --------------------------------------------------------------------------
+// The popup is drawn at the end of the frame above everything else.
+
+int dd_id = -1;
+Rect dd_rect;
+String[64] dd_items;
+int dd_count;
+int dd_result = -1;   // selection made last frame for dd_id
+int dd_result_id = -1;
+float dd_scroll;
+int dd_prev_top;
+char[8192] dd_store;  // item text storage (copied, valid while open)
+
+fn bool dropdown(int id, Rect r, String[] items, int* sel)
+{
+	bool changed = false;
+	if (dd_result_id == id && dd_result >= 0)
+	{
+		*sel = dd_result;
+		dd_result = -1;
+		dd_result_id = -1;
+		changed = true;
+	}
+	bool h = hover(r);
+	if (h) cursor = POINTING_HAND;
+	bool open = popup_open && dd_id == id;
+	panel(r, h || open ? BG2 : BG1, 5);
+	String cur = *sel >= 0 && *sel < items.len ? items[*sel] : "";
+	text_fit(cur, r.x + 10, r.y + (r.height - 15) / 2 - 1, r.width - 40, 15, FG);
+	text(I_DOWN, r.x + r.width - 24, r.y + (r.height - 12) / 2, 12, FG4);
+	if (clicked(r))
+	{
+		dd_id = id;
+		dd_rect = r;
+		dd_count = 0;
+		dd_scroll = 0;
+		usz off = 0;
+		foreach (it : items)
+		{
+			if (dd_count >= dd_items.len || off + it.len >= dd_store.len) break;
+			mem::copy(&dd_store[off], it.ptr, it.len);
+			dd_items[dd_count++] = (String)dd_store[off:it.len];
+			off += it.len;
+		}
+		dd_prev_top = top;
+		popup_open = true;
+		top = POPUP_LAYER;
+	}
+	return changed;
+}
+
+fn void draw_popup()
+{
+	if (!popup_open) return;
+	int saved = layer;
+	layer = POPUP_LAYER;
+	float row = 30;
+	float h = math::min((float)dd_count * row + 8, 340.0f);
+	float y = dd_rect.y + dd_rect.height + 4;
+	if (y + h > sh() - 8) y = dd_rect.y - h - 4;
+	Rect box = { dd_rect.x, y, dd_rect.width, h };
+	rl::draw_rectangle_rounded({ box.x + 3, box.y + 5, box.width, box.height }, 0.04f, 6, { 0, 0, 0, 90 });
+	panel(box, BG1, 6);
+	outline(box, BG3, 6);
+	float content = (float)dd_count * row + 8;
+	dd_scroll = scroll_wheel(box, dd_scroll, content);
+	begin_clip(box);
+	for (int i = 0; i < dd_count; i++)
+	{
+		Rect r = { box.x + 4, box.y + 4 + (float)i * row - dd_scroll, box.width - 8, row };
+		if (hover(r)) { panel(r, BG2, 4); cursor = POINTING_HAND; }
+		text_fit(dd_items[i], r.x + 8, r.y + 7, r.width - 16, 15, FG);
+		if (clicked(r))
+		{
+			dd_result = i;
+			dd_result_id = dd_id;
+			close_popup();
+		}
+	}
+	end_clip();
+	if (popup_open && !consumed && rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT) && !point_in(rl::get_mouse_position(), box))
+	{
+		close_popup();
+		consumed = true;
+	}
+	if (popup_open && rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE)) close_popup();
+	layer = saved;
+}
+
+fn void close_popup()
+{
+	popup_open = false;
+	top = dd_prev_top;
+}
+
+// Scrolling ---------------------------------------------------------------------------
+
+fn float scroll_wheel(Rect area, float scroll, float content)
+{
+	if (live() && point_in(rl::get_mouse_position(), area))
+	{
+		scroll -= rl::get_mouse_wheel_move() * 48;
+	}
+	float max = content - area.height;
+	if (max < 0) max = 0;
+	if (scroll > max) scroll = max;
+	if (scroll < 0) scroll = 0;
+	return scroll;
+}
+
+fn void scrollbar(Rect area, float scroll, float content)
+{
+	if (content <= area.height) return;
+	float frac = area.height / content;
+	float bh = math::max(area.height * frac, 24.0f);
+	float by = area.y + (area.height - bh) * (scroll / (content - area.height));
+	panel({ area.x + area.width - 6, by, 4, bh }, BG3, 2);
+}
+
+// Toasts --------------------------------------------------------------------------------
+
+char[512] toast_text;
+double toast_until;
+Color toast_color;
+
+fn void toast(String s, Color c = AQUA)
+{
+	txt::set(&toast_text, s);
+	toast_until = rl::get_time() + 3.5;
+	toast_color = c;
+}
+
+fn void draw_toast()
+{
+	if (!txt::empty(&tip_text))
+	{
+		rl::RLVector2 m = rl::get_mouse_position();
+		String t = txt::view(&tip_text);
+		float w = text_w(t, 14) + 16;
+		float x = math::min(m[0] + 14, sw() - w - 6);
+		Rect r = { x, m[1] + 18, w, 26 };
+		panel(r, BG_HARD, 4);
+		outline(r, BG3, 4);
+		text(t, r.x + 8, r.y + 5, 14, FG);
+		tip_text[0] = 0;
+	}
+	if (now > toast_until) return;
+	String t = txt::view(&toast_text);
+	float w = text_w(t, 15) + 40;
+	float a = (float)math::min(1.0, (toast_until - now) * 3);
+	Rect r = { sw() - w - 20, sh() - 76, w, 40 };
+	panel(r, { BG1.r, BG1.g, BG1.b, (char)(250 * a) }, 6);
+	rl::draw_rectangle_rec({ r.x, r.y + 8, 3, r.height - 16 }, { toast_color.r, toast_color.g, toast_color.b, (char)(255 * a) });
+	text(t, r.x + 20, r.y + 11, 15, { FG.r, FG.g, FG.b, (char)(255 * a) });
+}
+
+// Shared layout helpers -------------------------------------------------------------------
+
+fn void label(float x, float y, String s) => text(s, x, y, 14, FG4);
+
+<*
+ Modal dialog frame: dims the whole window, draws a centered box (at most w x h,
+ always 40 px away from the window edge) and returns it. Draw it on layer 1.
+*>
+fn Rect dialog(float w, float h)
+{
+	float vw = sw();
+	float vh = sh();
+	rl::draw_rectangle(0, 0, (int)vw + 1, (int)vh + 1, { 0, 0, 0, 150 });
+	w = math::min(vw - 80, w);
+	h = math::min(vh - 80, h);
+	Rect box = { (vw - w) / 2, (vh - h) / 2, w, h };
+	panel({ box.x + 4, box.y + 8, box.width, box.height }, { 0, 0, 0, 110 }, 10);
+	panel(box, BG, 10);
+	outline(box, BG2, 10);
+	return box;
+}
+
+<*
+ Title row of a dialog: icon + title on the left, a close (X) button on the right.
+ @return "true when the close button was clicked"
+*>
+fn bool dialog_header(Rect box, String icon, String title, String close_tip = "Close (Esc)")
+{
+	float x = box.x + 20;
+	float y = box.y + 16;
+	if (icon.len) { text(icon, x, y + 2, 18, YELLOW); x += 30; }
+	text(title, x, y, 20, FG);
+	return icon_button({ box.x + box.width - 44, y - 4, 30, 30 }, I_TIMES, FG4, close_tip);
+}
+
+// An image fit into `r` (keeps aspect), or - when `tex` is null - a placeholder
+// tile tinted by a hash of `name` showing its first letter.
+fn void tile(Rect r, rl::RLTexture2D* tex, String name)
+{
+	if (tex)
+	{
+		float sw = (float)tex.width;
+		float sh = (float)tex.height;
+		float s = math::min(r.width / sw, r.height / sh);
+		float w = sw * s;
+		float h = sh * s;
+		rl::draw_texture_pro(*tex, { 0, 0, sw, sh }, { r.x + (r.width - w) / 2, r.y + (r.height - h) / 2, w, h }, { 0, 0 }, 0, rl::WHITE);
+		return;
+	}
+	Color[6] tints = { DIM_YELLOW, BLUE, PURPLE, AQUA, ORANGE, DIM_GREEN };
+	uint hsh = 0;
+	foreach (c : name) hsh = hsh * 31 + c;
+	Color tint = tints[hsh % 6];
+	panel(r, BG2, r.width * 0.14f);
+	panel({ r.x + 3, r.y + 3, r.width - 6, r.height - 6 }, { tint.r, tint.g, tint.b, 70 }, r.width * 0.12f);
+	String letter = name.len ? name[:1] : "?";
+	float s = r.height * 0.5f;
+	text(letter, r.x + (r.width - text_w(letter, s)) / 2, r.y + (r.height - s) / 2 - 2, s, tint);
+}
