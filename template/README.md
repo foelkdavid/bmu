@@ -1,8 +1,8 @@
 # APP_NAME
 
-Built with [gruvkit](gruvkit/README.md) (C3 + raylib).
+Built with [bmu](bmu/README.md) (C3 + raylib).
 
 ```sh
-git submodule update --init      # first checkout: fetch gruvkit
+git submodule update --init      # first checkout: fetch bmu
 c3c build && ./build/APP_MODULE
 ```

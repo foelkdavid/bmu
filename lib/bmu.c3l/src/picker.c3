@@ -1,9 +1,9 @@
-module gruvkit::picker;
+module bmu::picker;
 import std::math, std::core::string;
 import raylib6::rl;
-import gruvkit::txt, gruvkit::sys, gruvkit::ui;
+import bmu::txt, bmu::sys, bmu::ui;
 
-// gruvkit::picker - built-in modal file / folder chooser. No portals, no zenity, no GTK.
+// bmu::picker - built-in modal file / folder chooser. No portals, no zenity, no GTK.
 //   picker::start(MY_PURPOSE, FILE, "Open a file", start_dir, &filters);   // open it
 //   if (picker::open) picker::draw();          // every frame, on ui layer 1 (modal)
 //   if (picker::take(&why, &path)) { ... }     // once, when the user picked something

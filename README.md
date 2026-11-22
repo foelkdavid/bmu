@@ -1,4 +1,4 @@
-# gruvkit
+# bmu — build my ui
 
 A small immediate-mode desktop UI kit for [C3](https://c3-lang.org) + raylib 6, with a Gruvbox dark look and an
 embedded Nerd Font. Extracted from botexe (a Proton launcher), which is the reference app built on it.
@@ -30,9 +30,9 @@ while (ui::running())
 
 ```sh
 c3c build example-gallery && ./build/example-gallery
-c3c build gruvkit-check && ./build/gruvkit-check      # headless tests
+c3c build bmu-check && ./build/bmu-check      # headless tests
 dev/tools/check-docs.sh                               # every code block in docs/ compiles
-tools/new-app.sh ../my-app "My App"              # new app with gruvkit as a submodule
+tools/new-app.sh ../my-app "My App"              # new app with bmu as a submodule
 ```
 
 Documentation: [docs/README.md](docs/README.md). Start with [GETTING_STARTED](docs/GETTING_STARTED.md), keep
@@ -40,5 +40,5 @@ Documentation: [docs/README.md](docs/README.md). Start with [GETTING_STARTED](do
 
 ## License
 
-Code: no license chosen yet. Font: CodeNewRoman Nerd Font Propo, SIL Open Font License 1.1 (`lib/gruvkit.c3l/assets/OFL.txt`).
+Code: no license chosen yet. Font: CodeNewRoman Nerd Font Propo, SIL Open Font License 1.1 (`lib/bmu.c3l/assets/OFL.txt`).
 raylib: zlib license (`lib/raylib6.c3l/LICENSE`).

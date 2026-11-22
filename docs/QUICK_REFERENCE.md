@@ -1,13 +1,13 @@
-# gruvkit quick reference (one page)
+# bmu quick reference (one page)
 
-The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a gruvkit app.
-Language: **C3** 0.8.x. Modules: `gruvkit::ui`, `gruvkit::txt`, `gruvkit::sys`, `gruvkit::picker`; raylib is `rl::`.
+The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
 
-1. Imports: `import std::math; import raylib6::rl; import gruvkit::ui, gruvkit::txt;` (+ `gruvkit::sys`,
-   `gruvkit::picker` when used). `std::math` is needed to name the `Rect` type (`Rect box = ...`).
+1. Imports: `import std::math; import raylib6::rl; import bmu::ui, bmu::txt;` (+ `bmu::sys`,
+   `bmu::picker` when used). `std::math` is needed to name the `Rect` type (`Rect box = ...`).
    Calls always carry the short module prefix: `ui::button`, `txt::view`, `sys::is_dir`, `picker::start`, `rl::...`.
 2. **Immediate mode**: there are no widget objects. Call the widget every frame; it draws and returns what happened
    (`if (ui::button(...)) ...`). A widget you stop calling is gone.
@@ -32,7 +32,7 @@ Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEP
 module quickref_app;
 import std::math;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt, gruvkit::picker;
+import bmu::ui, bmu::txt, bmu::picker;
 
 const int ID_NAME = 1;
 const int PICK_FILE = 1;

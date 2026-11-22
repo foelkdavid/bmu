@@ -1,7 +1,7 @@
-module gruvkit::ui;
+module bmu::ui;
 import std::io, std::math, std::core::string;
 import raylib6::rl;
-import gruvkit::txt;
+import bmu::txt;
 
 // App layer: window + frame loop + UI zoom + `--shot` screenshots. Optional - the
 // lower-level calls (begin_frame/end_frame, set_scale, load_font...) keep working.
@@ -28,6 +28,7 @@ bool zoom_changed;      // set for one frame when the user changed the scale
 char[1024] shot_path;   // --shot FILE: save a PNG after `shot_frames` frames, then quit
 int shot_frames = 3;
 int frame_count;
+int stable_frames;      // frames since the window was last resized (a tiling WM resizes right after mapping)
 bool quit;              // set to true to leave the loop (running() returns false)
 
 <*
@@ -69,7 +70,8 @@ fn void close()
 <*
  Parse the app-layer command line flags and ignore everything else:
    --shot FILE   render a few frames, save the window as PNG to FILE, exit
-   --frames N    frames before the shot (default 3)
+   --frames N    frames before the shot (default 3; it also waits until the window
+                 size has been stable for 5 frames, max 300 frames)
    --scale S     UI scale for this run (1, 1.5, 2...)
 *>
 fn void app_args(String[] args)
@@ -126,7 +128,8 @@ fn void frame_end()
 	rl::end_mode2d();
 	rl::end_drawing();
 	frame_count++;
-	if (shot_path[0] && frame_count >= shot_frames) @pool()
+	stable_frames = rl::is_window_resized() ? 0 : stable_frames + 1;
+	if (shot_path[0] && frame_count >= shot_frames && (stable_frames >= 5 || frame_count > 300)) @pool()
 	{
 		// not rl::take_screenshot: it keeps only the file NAME and saves into the cwd
 		rl::RLImage img = rl::load_image_from_screen();

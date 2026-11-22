@@ -1,4 +1,4 @@
-# How gruvkit thinks
+# How bmu thinks
 
 Five ideas explain every call. Read this once; the rest is lookup.
 
@@ -63,10 +63,10 @@ for the use: 128 names, 256 short text, 1024 paths. Anything built per frame (`s
 
 | module | file | what |
 |---|---|---|
-| `gruvkit::ui` | `app.c3` | window, loop, zoom keys, `--shot` |
-| `gruvkit::ui` | `ui.c3` | font, colours, icons, widgets, input state |
-| `gruvkit::picker` | `picker.c3` | file/folder chooser (uses ui, txt, sys) |
-| `gruvkit::txt` | `txt.c3` | char buffer + string helpers (no raylib) |
-| `gruvkit::sys` | `sys.c3` | POSIX file/process helpers (no raylib) |
+| `bmu::ui` | `app.c3` | window, loop, zoom keys, `--shot` |
+| `bmu::ui` | `ui.c3` | font, colours, icons, widgets, input state |
+| `bmu::picker` | `picker.c3` | file/folder chooser (uses ui, txt, sys) |
+| `bmu::txt` | `txt.c3` | char buffer + string helpers (no raylib) |
+| `bmu::sys` | `sys.c3` | POSIX file/process helpers (no raylib) |
 
 `txt` and `sys` don't touch raylib: CLI tools and headless code can use them alone.

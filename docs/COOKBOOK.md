@@ -1,4 +1,4 @@
-# gruvkit cookbook
+# bmu cookbook
 
 Working recipes. All code blocks on this page compile together as one program (`dev/tools/check-docs.sh`), and the
 last recipe runs a small app that uses most of them: copy freely.
@@ -7,7 +7,7 @@ last recipe runs a small app that uses most of them: copy freely.
 module cookbook;
 import std::io, std::math, std::core::string, std::core::dstring;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt, gruvkit::sys, gruvkit::picker;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 ```
 
 ## Labelled form fields with a Browse button

@@ -4,12 +4,12 @@
   "opt": "O1",
   "build-dir": "build",
   "output": "build",
-  "dependency-search-paths": ["gruvkit/lib"],
+  "dependency-search-paths": ["bmu/lib"],
   "targets": {
     "APP_MODULE": {
       "type": "executable",
       "sources": ["src/**"],
-      "dependencies": ["raylib6", "gruvkit"]
+      "dependencies": ["raylib6", "bmu"]
     }
   }
 }

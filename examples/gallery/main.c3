@@ -1,9 +1,9 @@
 module gallery;
 import std::math, std::core::string;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt, gruvkit::sys, gruvkit::picker;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 
-// Every gruvkit widget on one screen: buttons, icon buttons, inputs, checkboxes,
+// Every bmu widget on one screen: buttons, icon buttons, inputs, checkboxes,
 // dropdown, scrolling list, tiles, toast, tooltip, a modal dialog and the file picker.
 //   c3c build example-gallery && ./build/example-gallery
 //   ./build/example-gallery --shot out.png [--dialog | --picker]   (screenshot for checks)
@@ -36,7 +36,7 @@ const String[*] ITEMS = {
 
 fn void main(String[] args)
 {
-	ui::open("gruvkit gallery", 1100, 720, 900, 600);
+	ui::open("bmu gallery", 1100, 720, 900, 600);
 	defer ui::close();
 	ui::app_args(args);
 	foreach (a : args)

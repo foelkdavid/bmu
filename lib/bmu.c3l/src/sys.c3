@@ -1,8 +1,8 @@
-module gruvkit::sys;
+module bmu::sys;
 import std::io, std::core::string, libc;
-import gruvkit::txt;
+import bmu::txt;
 
-// gruvkit::sys - thin POSIX layer (Linux x86_64, glibc or musl): file tests, mkdir -p,
+// bmu::sys - thin POSIX layer (Linux x86_64, glibc or musl): file tests, mkdir -p,
 // directory listing, env, process spawning primitives. The c_* externs are the raw
 // libc calls; the plain functions are the safe wrappers apps should use.
 

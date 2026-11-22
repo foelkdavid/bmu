@@ -12,7 +12,7 @@ rm -rf "$out"; mkdir -p "$out"
 fail=0
 build() {   # build NAME FILE...
     name=$1; shift
-    if c3c compile --libdir lib --lib raylib6 --lib gruvkit -o "$out/$name" "$@" > "$out/$name.log" 2>&1; then
+    if c3c compile --libdir lib --lib raylib6 --lib bmu -o "$out/$name" "$@" > "$out/$name.log" 2>&1; then
         echo "ok    $name"
     else
         echo "FAIL  $name   (see $out/$name.log)"; grep -m 5 -B3 "error:" "$out/$name.log" | sed 's/^/        /'; fail=1

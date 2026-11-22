@@ -1,4 +1,4 @@
-# gruvkit API reference
+# bmu API reference
 
 Every public call, grouped by topic. Each entry: signature, what it does, gotchas.
 New here? Read [GETTING_STARTED.md](GETTING_STARTED.md), keep [QUICK_REFERENCE.md](QUICK_REFERENCE.md) open.
@@ -10,7 +10,7 @@ New here? Read [GETTING_STARTED.md](GETTING_STARTED.md), keep [QUICK_REFERENCE.m
   `std::math` rectangle `{ x, y, width, height }` (floats).
 - `char[] buf` parameters take a fixed buffer by address: `&my_buf` where `char[256] my_buf;`.
 - "temp" = allocated in C3's temp allocator; valid until the enclosing `@pool()` ends.
-- Source of truth: `lib/gruvkit.c3l/src/` (`app.c3`, `ui.c3`, `picker.c3`, `txt.c3`, `sys.c3`). Names in those files that
+- Source of truth: `lib/bmu.c3l/src/` (`app.c3`, `ui.c3`, `picker.c3`, `txt.c3`, `sys.c3`). Names in those files that
   are not listed here are internal (they are visible, but may change).
 
 Contents
@@ -37,11 +37,11 @@ Contents
 
 ## 1. App and frame loop
 
-`app.c3`, module `gruvkit::ui`. Optional, but use it: it does window setup, the UI zoom keys and `--shot`.
+`app.c3`, module `bmu::ui`. Optional, but use it: it does window setup, the UI zoom keys and `--shot`.
 
 ```c3
 module api_loop;
-import gruvkit::ui;
+import bmu::ui;
 
 fn void main(String[] args)
 {
@@ -60,7 +60,7 @@ fn void main(String[] args)
 | | |
 |---|---|
 | `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0)` | Resizable window (VSync, MSAA 4x), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. |
-| `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
+| `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, and once the window size has been stable for 5 frames, so a tiling WM's resize is not caught; then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
 | `fn bool running()` | `false` when the window is closed, `quit` was set, or the `--shot` was taken. |
 | `bool quit` | Set to `true` to end the loop (e.g. a Quit button). |
 | `fn void frame_begin(bool modal = false)` | Resets per-frame input state, handles **Ctrl + / Ctrl − / Ctrl 0** (zoom, auto), sets `top` = `modal ? 1 : 0` (unless a dropdown is open), `begin_drawing`, clears to `clear_color`, starts the 2D zoom, `layer = 0`. |
@@ -81,7 +81,7 @@ Gotchas
 
 ## 2. Font, text and icons
 
-The font is CodeNewRoman Nerd Font Propo (`lib/gruvkit.c3l/assets/ui.otf`, SIL OFL), `$embed`ded into the binary and
+The font is CodeNewRoman Nerd Font Propo (`lib/bmu.c3l/assets/ui.otf`, SIL OFL), `$embed`ded into the binary and
 baked at 64 px with trilinear mipmaps, so any size looks sharp.
 
 | | |
@@ -277,7 +277,7 @@ Ctrl +/−/0 are taken by `frame_begin` for zoom.
 
 ## 13. File picker (picker::)
 
-Module `gruvkit::picker`. A modal file/folder chooser drawn with gruvkit itself: path bar (type a path or `~/...`,
+Module `bmu::picker`. A modal file/folder chooser drawn with bmu itself: path bar (type a path or `~/...`,
 Enter), places sidebar (Home, Downloads, your places, /mnt, /run/media, /), list (dirs first, sorted), hidden-files
 and all-files toggles. Double-click/Enter opens, Backspace goes up, ↑/↓ select, Esc cancels.
 
@@ -307,7 +307,7 @@ if (picker::take(&why, &path)) { if (why == PICK_ICON) txt::set(&icon, path); }
 
 ## 14. Text buffers and strings (txt::)
 
-Module `gruvkit::txt`. Buffers are `char[N]` holding UTF-8 + NUL.
+Module `bmu::txt`. Buffers are `char[N]` holding UTF-8 + NUL.
 
 | | |
 |---|---|
@@ -328,7 +328,7 @@ Module `gruvkit::txt`. Buffers are `char[N]` holding UTF-8 + NUL.
 
 ## 15. Files and system (sys::)
 
-Module `gruvkit::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
+Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 
 | | |
 |---|---|
@@ -359,7 +359,7 @@ Module `gruvkit::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-code
 
 ## 17. Low level: without the app layer
 
-If you manage the window yourself (or embed gruvkit into a raylib game):
+If you manage the window yourself (or embed bmu into a raylib game):
 
 ```c3
 // sketch

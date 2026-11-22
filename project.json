@@ -6,20 +6,20 @@
   "output": "build",
   "dependency-search-paths": ["lib"],
   "targets": {
-    "gruvkit-check": {
+    "bmu-check": {
       "type": "executable",
       "sources": ["dev/tests/**"],
-      "dependencies": ["raylib6", "gruvkit"]
+      "dependencies": ["raylib6", "bmu"]
     },
     "example-hello": {
       "type": "executable",
       "sources": ["examples/hello/**"],
-      "dependencies": ["raylib6", "gruvkit"]
+      "dependencies": ["raylib6", "bmu"]
     },
     "example-gallery": {
       "type": "executable",
       "sources": ["examples/gallery/**"],
-      "dependencies": ["raylib6", "gruvkit"]
+      "dependencies": ["raylib6", "bmu"]
     }
   }
 }

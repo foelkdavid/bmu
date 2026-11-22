@@ -1,7 +1,7 @@
-module gruvkit::txt;
+module bmu::txt;
 import std::core::string;
 
-// gruvkit::txt - fixed-size, NUL-terminated char buffers (`char[N]`) are the storage
+// bmu::txt - fixed-size, NUL-terminated char buffers (`char[N]`) are the storage
 // type for every editable string (ui::input edits them in place). These helpers
 // bridge them with C3 Strings, plus case-insensitive compare and path helpers.
 // Functions that build a String (join, zjoin) use temp memory: wrap in @pool().

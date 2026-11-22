@@ -10,7 +10,7 @@
 ## Try it
 
 ```sh
-cd ../gruvkit
+cd ../bmu
 c3c build example-hello   && ./build/example-hello
 c3c build example-gallery && ./build/example-gallery      # every widget + the file picker
 ```
@@ -18,23 +18,23 @@ c3c build example-gallery && ./build/example-gallery      # every widget + the f
 ## A new app
 
 ```sh
-../gruvkit/tools/new-app.sh ../my-app "My App"
+../bmu/tools/new-app.sh ../my-app "My App"
 cd ../my-app && c3c build && ./build/my-app
 ```
 
-This copies `template/`, links gruvkit in as a git submodule at `gruvkit/` (like vpt-engine is `engine/` in Depths),
-builds, and makes the first commit. To add gruvkit to an **existing** project by hand:
+This copies `template/`, links bmu in as a git submodule at `bmu/` (like vpt-engine is `engine/` in Depths),
+builds, and makes the first commit. To add bmu to an **existing** project by hand:
 
-1. Make `gruvkit/` point at this repo: `git submodule add <gruvkit repo> gruvkit` (or a symlink
-   `ln -s ../gruvkit gruvkit` for a project without git).
+1. Make `bmu/` point at this repo: `git submodule add <bmu repo> bmu` (or a symlink
+   `ln -s ../bmu bmu` for a project without git).
 2. In `project.json`:
 
 ```json
-"dependency-search-paths": ["gruvkit/lib"],
-"targets": { "my-app": { "type": "executable", "sources": ["src/**"], "dependencies": ["raylib6", "gruvkit"] } }
+"dependency-search-paths": ["bmu/lib"],
+"targets": { "my-app": { "type": "executable", "sources": ["src/**"], "dependencies": ["raylib6", "bmu"] } }
 ```
 
-3. Import what you use: `import std::math; import raylib6::rl; import gruvkit::ui, gruvkit::txt, gruvkit::sys, gruvkit::picker;`
+3. Import what you use: `import std::math; import raylib6::rl; import bmu::ui, bmu::txt, bmu::sys, bmu::picker;`
 
 ## How an app is structured
 
@@ -42,7 +42,7 @@ builds, and makes the first commit. To add gruvkit to an **existing** project by
 module getting_started;
 import std::core::string;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt;
+import bmu::ui, bmu::txt;
 
 const int ID_TODO = 1;          // input ids: unique per field
 
@@ -88,4 +88,4 @@ Build and look at it without clicking around: `./build/my-app --shot out.png` sa
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md): all calls on one page.
 - [COOKBOOK.md](COOKBOOK.md): forms, lists, dialogs, tabs, the file picker, settings files, shortcuts, drag & drop.
 - [CONCEPTS.md](CONCEPTS.md): layers, logical pixels, ids.
-- botexe (`../botexe`) is a complete real app built on gruvkit.
+- botexe (`../botexe`) is a complete real app built on bmu.

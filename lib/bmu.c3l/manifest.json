@@ -1,5 +1,5 @@
 {
-  "provides": "gruvkit",
+  "provides": "bmu",
   "version": "0.1.0",
   "langrev": "1",
   "sources": ["src/**"]

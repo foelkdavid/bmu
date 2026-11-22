@@ -1,9 +1,9 @@
-module gruvkit::ui;
+module bmu::ui;
 import std::math, std::core::string;
 import raylib6::rl;
-import gruvkit::txt;
+import bmu::txt;
 
-// gruvkit::ui - small immediate-mode widget kit for raylib. Gruvbox dark palette,
+// bmu::ui - small immediate-mode widget kit for raylib. Gruvbox dark palette,
 // embedded Nerd Font (CodeNewRoman Nerd Font Propo, OFL - see ../assets/README.txt).
 // Everything is drawn in LOGICAL pixels; `scale` maps them to physical pixels.
 // Docs: docs/API.md (every function), docs/CONCEPTS.md (layers, ids, buffers).

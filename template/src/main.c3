@@ -1,9 +1,9 @@
 module APP_MODULE;
 import std::math, std::core::string;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt, gruvkit::sys, gruvkit::picker;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 
-// APP_NAME - built on gruvkit (docs: gruvkit/docs/README.md, one page: gruvkit/docs/QUICK_REFERENCE.md).
+// APP_NAME - built on bmu (docs: bmu/docs/README.md, one page: bmu/docs/QUICK_REFERENCE.md).
 // Run: c3c build && ./build/APP_MODULE        Screenshot check: ./build/APP_MODULE --shot out.png
 
 const int ID_SEARCH = 1;      // input ids: unique per field (picker uses 9000+)
@@ -50,7 +50,7 @@ fn void frame() => @pool()
 	{
 		Rect box = ui::dialog(460, 200);
 		if (ui::dialog_header(box, ui::I_INFO, "About APP_NAME") || (ui::live() && rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE))) about_open = false;
-		ui::text("Made with gruvkit.", box.x + 24, box.y + 80, 15, ui::FG4);
+		ui::text("Made with bmu.", box.x + 24, box.y + 80, 15, ui::FG4);
 	}
 	if (picker::open) picker::draw();
 	ui::layer = 0;

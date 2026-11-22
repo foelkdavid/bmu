@@ -1,9 +1,9 @@
-module gruvkit::tests;
+module bmu::tests;
 import std::io, std::core::string, libc;
-import gruvkit::txt, gruvkit::sys, gruvkit::ui;
+import bmu::txt, bmu::sys, bmu::ui;
 
 // Headless checks (no window): txt helpers, sys file helpers, text-edit primitives.
-//   c3c build gruvkit-check && ./build/gruvkit-check     -> ALL GRUVKIT CHECKS PASSED
+//   c3c build bmu-check && ./build/bmu-check     -> ALL BMU CHECKS PASSED
 
 int failed;
 int passed;
@@ -28,7 +28,7 @@ fn void main()
 	check_sys();
 	check_edit();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
-	io::printfn("ALL GRUVKIT CHECKS PASSED (%d)", passed);
+	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 }
 
 fn void check_txt() => @pool()
@@ -73,7 +73,7 @@ fn void check_txt() => @pool()
 
 fn void check_sys() => @pool()
 {
-	String root = string::tformat("/tmp/gruvkit-check-%d", sys::now());
+	String root = string::tformat("/tmp/bmu-check-%d", sys::now());
 	expect(sys::mkdirs(txt::join(root, "x/y/z")), "mkdirs");
 	expect(sys::is_dir(txt::join(root, "x/y")), "is_dir");
 	expect(sys::write_file(txt::join(root, "b.txt"), "hello world"), "write_file");

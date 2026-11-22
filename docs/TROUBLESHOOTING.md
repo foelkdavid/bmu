@@ -5,8 +5,8 @@ Symptom → cause → fix.
 | symptom | cause | fix |
 |---|---|---|
 | `Did you mean the alias 'Rect' in module std::math::geometry?` | naming the `Rect` type needs std::math | `import std::math;` |
-| `'ui::button' could not be found` / `'ui' ... not imported` | missing import, or module not in project | `import gruvkit::ui;` and `"dependencies": ["raylib6", "gruvkit"]`, `"dependency-search-paths": ["gruvkit/lib"]` |
-| `Library 'gruvkit' not found` | search path wrong | the path must contain `gruvkit.c3l/` (e.g. `gruvkit/lib`); check the submodule/symlink exists |
+| `'ui::button' could not be found` / `'ui' ... not imported` | missing import, or module not in project | `import bmu::ui;` and `"dependencies": ["raylib6", "bmu"]`, `"dependency-search-paths": ["bmu/lib"]` |
+| `Library 'bmu' not found` | search path wrong | the path must contain `bmu.c3l/` (e.g. `bmu/lib`); check the submodule/symlink exists |
 | nothing reacts to clicks | a modal state is stuck: `frame_begin(true)` while nothing is drawn on layer 1, or you drew on layer 1 without passing `modal` | pass exactly "is a modal visible" to `frame_begin`; reset `ui::layer = 0` after modals |
 | the main window still reacts behind my dialog | dialog drawn on layer 0, or `frame_begin` not told | `ui::layer = 1;` before it, `frame_begin(dialog_open \|\| picker::open)` |
 | dialog closes by itself / two widgets fire | the click went to a widget drawn earlier | draw the topmost thing last; set `ui::consumed = true` when your own code eats a click |

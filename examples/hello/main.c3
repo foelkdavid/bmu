@@ -1,6 +1,6 @@
 module hello;
 import raylib6::rl;
-import gruvkit::ui, gruvkit::txt;
+import bmu::ui, bmu::txt;
 
 char[128] name;   // text field storage: a fixed char buffer, edited in place
 
@@ -12,7 +12,7 @@ fn void main(String[] args)
 	while (ui::running())
 	{
 		ui::frame_begin();
-		ui::text("Hello, gruvkit", 30, 30, 28, ui::YELLOW);
+		ui::text("Hello, bmu", 30, 30, 28, ui::YELLOW);
 		ui::label(30, 90, "Your name");
 		bool enter = false;
 		ui::input(1, { 30, 112, 300, 36 }, &name, "type here", &enter);
