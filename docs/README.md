@@ -10,6 +10,6 @@
 | [TROUBLESHOOTING.md](TROUBLESHOOTING.md) | symptom → fix |
 
 Examples (from the bmu folder): `c3c build example-hello && ./build/example-hello`, `example-gallery` (every widget).
-A real app: botexe (`../botexe`). A new app: `tools/new-app.sh ../my-app "My App"`.
+A real app: sms (`../sms`). A new app: `tools/new-app.sh ../my-app "My App"`.
 
 All code in these docs is compiled by `dev/tools/check-docs.sh` (blocks starting with `// sketch` are fragments).

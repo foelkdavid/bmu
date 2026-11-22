@@ -1,7 +1,7 @@
 # bmu — build my ui
 
 A small immediate-mode desktop UI kit for [C3](https://c3-lang.org) + raylib 6, with a Gruvbox dark look and an
-embedded Nerd Font. Extracted from botexe (a Proton launcher), which is the reference app built on it.
+embedded Nerd Font.
 
 ![gallery](docs/gallery.png)
 
