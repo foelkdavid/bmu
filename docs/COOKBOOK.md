@@ -282,6 +282,22 @@ fn void shortcuts(char[] search_buf, int search_id)
 }
 ```
 
+For independent content zoom, set `ui::zoom_shift_only = true;` after `open()`. Whole-UI zoom then uses
+Ctrl+Shift +/-/0. In your frame loop (after `frame_begin`), handle plain Ctrl +/- using `ui::zoom_step()`:
+
+```c3
+// sketch: app state, persisted alongside ui::scale
+float content_scale = 1;
+fn void content_zoom()
+{
+	if (ui::top != 0 || ui::focus >= 0 || !ui::ctrl_down() || ui::shift_down()) return;
+	content_scale = math::clamp(content_scale + (float)ui::zoom_step() * 0.1f, 0.5f, 2.5f);
+	if (rl::is_key_pressed(rl::RLKeyboardKey.ZERO)) content_scale = 1;
+}
+```
+
+Use `content_scale` only in your content layout (row height, text/icons, padding), not in the surrounding controls.
+
 ## Drag & drop files onto the window
 
 ```c3

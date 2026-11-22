@@ -65,7 +65,9 @@ fn void main(String[] args)
 | `bool quit` | Set to `true` to end the loop (e.g. a Quit button). |
 | `fn void frame_begin(bool modal = false)` | Resets per-frame input state, handles **Ctrl + / Ctrl − / Ctrl 0** (zoom, auto), sets `top` = `modal ? 1 : 0` (unless a dropdown is open), `begin_drawing`, clears to `clear_color`, starts the 2D zoom, `layer = 0`. |
 | `fn void frame_end()` | Draws the open dropdown popup, the tooltip and the toast **on top of everything**, sets the mouse cursor, ends drawing, handles `--shot`. |
-| `fn void zoom(float s)` | Set the scale like the keys do: clamps, updates min window size, sets `zoom_changed`, toasts "UI scale N%" if `zoom_toast`. |
+| `bool zoom_shift_only = false` | Set true to use Ctrl+Shift +/-/0 for whole-UI zoom, reserving plain Ctrl +/-/0 for app-specific content zoom. |
+| `fn int zoom_step()` | Layout-aware +/- key presses (including keypad), returns −1, 0, or +1; caller supplies modifiers and step size. `map_layout()` maps symbol keys as well as letters. |
+| `fn void zoom(float s)` | Set the scale like the keys do: clamps; on a real scale change, updates min window size, sets `zoom_changed`, and toasts "UI scale N%" if `zoom_toast`. |
 | `bool zoom_changed` | True for the frame in which the user zoomed. Persist `ui::scale` then. |
 | `bool zoom_toast = true` | Show the "UI scale" toast. |
 | `Color clear_color = BG` | Background colour. |

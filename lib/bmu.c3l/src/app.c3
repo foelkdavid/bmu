@@ -22,7 +22,8 @@ int base_h = 800;
 int min_base_w = 800;
 int min_base_h = 500;
 Color clear_color = BG;
-bool zoom_toast = true; // frame_begin's Ctrl +/-/0 shows "UI scale N%"
+bool zoom_toast = true; // frame_begin's zoom shortcuts show "UI scale N%"
+bool zoom_shift_only;   // reserve plain Ctrl +/-/0 for app content zoom
 bool zoom_changed;      // set for one frame when the user changed the scale
 
 char[1024] shot_path;   // --shot FILE: save a PNG after `shot_frames` frames, then quit
@@ -90,7 +91,7 @@ fn void app_args(String[] args)
 fn bool running() => !quit && !rl::window_should_close();
 
 <*
- Start a frame: input state (begin_frame), Ctrl +/-/0 zoom, input layer (`modal`
+ Start a frame: input state (begin_frame), Ctrl +/-/0 zoom (with Shift if zoom_shift_only), input layer (`modal`
  true = only layer 1 reacts), begin_drawing, clear, 2D zoom by `scale`.
 *>
 fn void frame_begin(bool modal = false)
@@ -98,11 +99,9 @@ fn void frame_begin(bool modal = false)
 	begin_frame();
 	if (!popup_open && menu_id < 0) top = modal ? 1 : 0;
 	zoom_changed = false;
-	if (ctrl_down())
+	if (ctrl_down() && (!zoom_shift_only || shift_down()))
 	{
-		float s = scale;
-		if (rl::is_key_pressed(rl::RLKeyboardKey.EQUAL) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ADD)) s += 0.25f;
-		if (rl::is_key_pressed(rl::RLKeyboardKey.MINUS) || rl::is_key_pressed(rl::RLKeyboardKey.KP_SUBTRACT)) s -= 0.25f;
+		float s = scale + (float)zoom_step() * 0.25f;
 		if (rl::is_key_pressed(rl::RLKeyboardKey.ZERO)) s = auto_scale();
 		if (s != scale) zoom(s);
 	}
@@ -112,10 +111,12 @@ fn void frame_begin(bool modal = false)
 	layer = 0;
 }
 
-<* Change the UI scale like Ctrl +/- does (sets zoom_changed, min size, toast). *>
+<* Change UI scale like the zoom shortcuts (only a real change sets zoom_changed/min size/toast). *>
 fn void zoom(float s)
 {
+	float previous = scale;
 	set_scale(s);
+	if (previous == scale) return;
 	fit_window(false);
 	zoom_changed = true;
 	if (zoom_toast) @pool() { toast(string::tformat("UI scale %d%%", (int)(scale * 100 + 0.5f))); };

@@ -11,6 +11,29 @@ fn void expect(bool ok, String what)
 	libc::exit(1);
 }
 
+fn void check_zoom()
+{
+	float saved = ui::scale;
+	ui::zoom_toast = false;
+	ui::zoom(1);
+	ui::zoom_changed = false;
+	ui::zoom(1);
+	expect(!ui::zoom_changed, "same zoom is not a change");
+	ui::zoom(1.25f);
+	expect(ui::zoom_changed && ui::scale == 1.25f, "zoom changes scale");
+	ui::zoom(9);
+	expect(ui::scale == 3, "zoom clamps at maximum");
+	ui::zoom_changed = false;
+	ui::zoom(4);
+	expect(!ui::zoom_changed, "clamped zoom is not a change");
+	ui::zoom(saved);
+	ui::zoom_toast = true;
+	ZString plus = ui::glfw_key_name(ui::plus_key, 0);
+	ZString minus = ui::glfw_key_name(ui::minus_key, 0);
+	expect(plus && (plus[0] == '+' || plus[0] == '='), "plus key follows printable layout");
+	expect(minus && minus[0] == '-', "minus key follows printable layout");
+}
+
 fn void check_fonts()
 {
 	float saved_scale = ui::scale;
@@ -73,6 +96,7 @@ fn void main(String[] args)
 	double startup = rl::get_time() - start;
 	defer ui::close();
 	ui::app_args(args);
+	check_zoom();
 	check_fonts();
 	double cold;
 	double warm;

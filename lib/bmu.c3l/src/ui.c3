@@ -469,17 +469,35 @@ fn void focus_on(int id, char[] buf)
 // QWERTZ would be the key labelled Y. GLFW knows which letter each key produces.
 extern fn ZString glfw_key_name(CInt key, CInt scancode) @cname("glfwGetKeyName");
 int[26] letter_keys;
+int plus_key = (int)rl::RLKeyboardKey.EQUAL;
+int minus_key = (int)rl::RLKeyboardKey.MINUS;
 
 fn void map_layout()
 {
 	for (int k = 0; k < 26; k++) letter_keys[k] = 65 + k;
-	for (int code = 65; code <= 90; code++)
+	plus_key = (int)rl::RLKeyboardKey.EQUAL;
+	minus_key = (int)rl::RLKeyboardKey.MINUS;
+	for (int code = 32; code <= 96; code++)
 	{
+		// Only defined printable GLFW keys have valid scancodes.
+		if (!((code >= 44 && code <= 57) || (code >= 65 && code <= 93) ||
+			code == 32 || code == 39 || code == 59 || code == 61 || code == 96)) continue;
 		ZString name = glfw_key_name(code, 0);
 		if (!name || !name[0] || name[1]) continue;
 		char c = txt::lower(name[0]);
 		if (c >= 'a' && c <= 'z') letter_keys[c - 'a'] = code;
+		if (c == '+') plus_key = code;
+		if (c == '-') minus_key = code;
 	}
+}
+
+// Layout-aware +/- presses, including keypad. Caller chooses modifiers and step size.
+fn int zoom_step()
+{
+	int step;
+	if (rl::is_key_pressed((rl::RLKeyboardKey)plus_key) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ADD)) step++;
+	if (rl::is_key_pressed((rl::RLKeyboardKey)minus_key) || rl::is_key_pressed(rl::RLKeyboardKey.KP_SUBTRACT)) step--;
+	return step;
 }
 
 fn bool letter(char c) => rl::is_key_pressed((rl::RLKeyboardKey)letter_keys[c - 'a']);

@@ -80,6 +80,7 @@ fn void main(String[] args)
 | `app_args(args)` | `--shot FILE` (PNG after `--frames N`=3, then exit), `--scale S` |
 | `running()` / `quit = true` | loop condition / leave the loop |
 | `frame_begin(modal=false)` / `frame_end()` | start (input, zoom keys, clear, 2D zoom) / finish (popup, tooltip, toast, present) |
+| `zoom_shift_only`, `zoom_step()` | require Shift for built-in UI zoom; layout-aware +/- presses for custom content zoom |
 | `zoom(s)`, `zoom_changed`, `zoom_toast`, `clear_color`, `close()` | scale like Ctrl +/-; "changed this frame" flag; toast on/off; background; shutdown |
 | **layout & state** (`ui::`) | |
 | `sw()`, `sh()` | window size in logical px |
