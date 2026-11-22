@@ -82,7 +82,13 @@ Gotchas
 ## 2. Font, text and icons
 
 The font is CodeNewRoman Nerd Font Propo (`lib/bmu.c3l/assets/ui.otf`, SIL OFL), `$embed`ded into the binary and
-baked at 64 px with trilinear mipmaps, so any size looks sharp.
+rasterized at the displayed physical pixel size, without mipmap downsampling. Text origins and sizes round to
+physical pixels (including fractional UI zoom); drawing and measurement use the same atlas. Up to 32 additional
+sizes are cached with LRU eviction, alongside the default body-size atlas. A new size is baked on its first
+measurement/draw from the embedded bytes; cache hits do not rasterize or allocate atlases. Applications with many
+sizes should avoid cycling through more than 32 distinct physical sizes per frame. Rasterization is synchronous
+on a cache miss (including first use after zoom). Above 192 physical px, the 192 px atlas is scaled up, preserving
+the requested display size.
 
 | | |
 |---|---|
@@ -91,8 +97,8 @@ baked at 64 px with trilinear mipmaps, so any size looks sharp.
 | `fn void text_fit(String s, float x, float y, float w, float size = 15, Color color = FG)` | Like `text`, cut to width `w` with a trailing `…` (UTF-8 safe). |
 | `fn void text_tail(String s, float x, float y, float w, float size = 15, Color color = FG)` | Shows only the end, prefixed with `…` (for paths). |
 | `fn void label(float x, float y, String s)` | 14 px, `FG4`: the caption left of a field. |
-| `fn void load_font(int[] extra = {})` | Bake the font. Codepoints included: ASCII 32–126, Latin-1 160–255, the `I_*` icons, `•` `—` `…` `·`, and `extra`. **A glyph not baked shows as `?`.** `open()` calls it with no extras; to add glyphs call `ui::unload_font(); ui::load_font(&my_codepoints);` after `open()`. |
-| `fn void unload_font()` | Free it. `bool has_font` tells whether it loaded (else raylib's default font is used). |
+| `fn void load_font(int[] extra = {})` | Reset the atlas cache and bake the default body-size font; other sizes bake on first use. Codepoints included: ASCII 32–126, Latin-1 160–255, the `I_*` icons, `•` `—` `…` `·`, and `extra`. **A glyph not baked shows as `?`.** `open()` calls it with no extras; to add glyphs call `ui::unload_font(); ui::load_font(&my_codepoints);` after `open()`. |
+| `fn void unload_font()` | Free all cached atlases (safe to call again). `bool has_font` tells whether it loaded (else raylib's default font is used). |
 
 Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
 
@@ -392,6 +398,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | tooltip / toast | 255 / 511 bytes |
 | picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
+| font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
 

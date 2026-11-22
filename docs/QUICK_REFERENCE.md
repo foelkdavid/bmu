@@ -106,7 +106,7 @@ fn void main(String[] args)
 | `tooltip(s)`, `toast(s, color=AQUA)` | hover text this frame / 3.5 s notification bottom-right |
 | `focus`, `focused(id)`, `focus_on(id, &buf)`, `unfocus()` | text focus (−1 = none); focus_on selects all |
 | `letter('f')`, `ctrl_down()`, `shift_down()`, `repeat(key)` | layout-safe letter press; modifiers; press + auto-repeat |
-| `load_font(extra={})`, `map_layout()` | done by `open()`; call yourself only without it |
+| `load_font(extra={})`, `map_layout()` | done by `open()`; fonts use cached native-pixel atlases (first use of a size bakes it); reload to add glyphs |
 | **colours / icons** | `BG_HARD BG BG1 BG2 BG3 BG4 FG FG4 GRAY RED GREEN YELLOW BLUE PURPLE AQUA ORANGE DIM_RED DIM_GREEN DIM_YELLOW`; `I_PLAY I_STOP I_PLUS I_FOLDER I_FOLDER_OPEN I_FILE I_GEAR I_SEARCH I_TRASH I_UP I_HOME I_HDD I_GAMEPAD I_WINDOWS I_CLOCK I_CHECK I_TIMES I_DOWN I_RIGHT I_REFRESH I_TERMINAL I_IMAGE I_WRENCH I_STEAM I_BOLT I_WARN I_INFO I_LIST I_EYE I_STAR I_EYE_OFF I_MENU I_COPY I_CUT I_PASTE I_EDIT I_BACK I_FORWARD I_LEFT I_GRID I_BOOKMARK I_LINK I_LOCK I_EXTERNAL I_UNDO I_SORT_UP I_SORT_DOWN I_DESKTOP I_DOWNLOAD I_MUSIC I_VIDEO I_FILE_TEXT I_FILE_IMAGE I_FILE_AUDIO I_FILE_VIDEO I_FILE_ARCHIVE I_FILE_CODE I_FILE_PDF` |
 | **picker** (`picker::`) | |
 | `start(why, FILE\|DIR, title, start_dir, filter={})` | open; `filter` = `String[]` like `{ ".png", ".jpg" }` |

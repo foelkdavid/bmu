@@ -6,6 +6,11 @@
   "output": "build",
   "dependency-search-paths": ["lib"],
   "targets": {
+    "font-check": {
+      "type": "executable",
+      "sources": ["dev/font-check.c3"],
+      "dependencies": ["raylib6", "bmu"]
+    },
     "bmu-check": {
       "type": "executable",
       "sources": ["dev/tests/**"],

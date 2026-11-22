@@ -29,6 +29,9 @@ maps them to physical px through a raylib 2D camera zoom, and the mouse is scale
 - Window size: `ui::sw()`, `ui::sh()` (logical). Not `rl::get_screen_width()` (physical).
 - Scissor: `ui::scissor` / `ui::begin_clip` (logical). Not `rl::begin_scissor_mode` (physical).
 - Persist the user's zoom: when `ui::zoom_changed`, save `ui::scale`; pass it to `ui::open(..., ui_scale: saved)`.
+- Text is rasterized at its displayed physical pixel size; origins and sizes round to physical pixels so glyphs
+  don't blur between pixels. `text_w` uses the same size-specific metrics as drawing. Font atlases are cached;
+  first use of a new physical size bakes synchronously from embedded data (see API §2 / §16 for bounds).
 
 ## Layers and modals
 

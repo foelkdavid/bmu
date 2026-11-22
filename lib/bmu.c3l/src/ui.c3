@@ -105,6 +105,70 @@ const char[*] FONT_DATA = $embed("../assets/ui.otf");
 rl::RLFont font;
 bool has_font;
 
+// Lazy, bounded native-pixel atlases. Lookup is O(1); only a cache miss rasterizes.
+const int FONT_CACHE_SIZE = 32;
+const int FONT_MAX_PIXELS = 192;
+struct FontSize
+{
+	rl::RLFont face;
+	ulong used;
+}
+FontSize[FONT_CACHE_SIZE] font_sizes;
+int[FONT_MAX_PIXELS + 1] font_slots; // slot + 1; zero = not cached
+int[1024] font_codepoints;
+int font_codepoint_count;
+ulong font_clock;
+
+// Flush queued glyphs before deleting an atlas during LRU eviction.
+extern fn void flush_font_batch() @cname("rlDrawRenderBatchActive");
+
+fn int font_pixels(float size) => (int)math::clamp(math::round(size * scale), 1.0f, (float)FONT_MAX_PIXELS);
+fn float text_pixel(float position) => math::round(position * scale) / scale;
+fn float text_size(float size) => size * scale > (float)FONT_MAX_PIXELS ? size : (float)font_pixels(size) / scale;
+
+fn rl::RLFont bake_font(int pixels)
+{
+	rl::RLFont face = rl::load_font_from_memory(".otf", &FONT_DATA[0], (int)FONT_DATA.len,
+		pixels, &font_codepoints, font_codepoint_count);
+	// raylib can return its shared default font on failure; never cache/unload it.
+	if (!face.texture.id || face.glyph_count != font_codepoint_count) return {};
+	// No mipmaps: at native size each atlas texel maps to one physical pixel.
+	face.texture.set_filter(rl::RLTextureFilter.BILINEAR);
+	return face;
+}
+
+fn rl::RLFont* sized_font(float size)
+{
+	int pixels = font_pixels(size);
+	if (pixels == font.base_size) return &font;
+	int slot = font_slots[pixels] - 1;
+	if (slot < 0)
+	{
+		slot = 0;
+		for (int i = 0; i < FONT_CACHE_SIZE; i++)
+		{
+			if (!font_sizes[i].face.texture.id) { slot = i; break; }
+			if (font_sizes[i].used < font_sizes[slot].used) slot = i;
+		}
+		FontSize* cached = &font_sizes[slot];
+		if (cached.face.texture.id)
+		{
+			flush_font_batch();
+			font_slots[cached.face.base_size] = 0;
+			rl::unload_font(cached.face);
+		}
+		cached.face = bake_font(pixels);
+		if (!cached.face.texture.id || cached.face.glyph_count <= 0)
+		{
+			cached.face = {};
+			return &font;
+		}
+		font_slots[pixels] = slot + 1;
+	}
+	font_sizes[slot].used = ++font_clock;
+	return &font_sizes[slot].face;
+}
+
 <*
  Load the embedded UI font (needs an open window). Only the glyphs baked here can
  be drawn: ASCII, Latin-1, the I_* icons and `extra` (any other codepoints, e.g.
@@ -112,24 +176,31 @@ bool has_font;
 *>
 fn void load_font(int[] extra = {})
 {
-	int[1024] cps;
-	int n = 0;
-	for (int c = 32; c < 127; c++) cps[n++] = c;
-	for (int c = 160; c < 256; c++) cps[n++] = c;
-	foreach (c : ICON_CODEPOINTS) cps[n++] = c;
-	foreach (c : extra) if (n < cps.len) cps[n++] = c;
-	font = rl::load_font_from_memory(".otf", &FONT_DATA[0], (int)FONT_DATA.len, 64, &cps, n);
-	if (font.texture.id && font.glyph_count > 0)
-	{
-		rl::gen_texture_mipmaps(&font.texture);
-		font.texture.set_filter(rl::RLTextureFilter.TRILINEAR);
-		has_font = true;
-	}
+	unload_font();
+	font_codepoint_count = 0;
+	for (int c = 32; c < 127; c++) font_codepoints[font_codepoint_count++] = c;
+	for (int c = 160; c < 256; c++) font_codepoints[font_codepoint_count++] = c;
+	foreach (c : ICON_CODEPOINTS) font_codepoints[font_codepoint_count++] = c;
+	foreach (c : extra) if (font_codepoint_count < font_codepoints.len) font_codepoints[font_codepoint_count++] = c;
+	font = bake_font(font_pixels(15));
+	has_font = font.texture.id && font.glyph_count > 0;
 }
 
 fn void unload_font()
 {
-	if (has_font) rl::unload_font(font);
+	if (has_font)
+	{
+		flush_font_batch();
+		rl::unload_font(font);
+	}
+	foreach (&cached : font_sizes)
+	{
+		if (cached.face.texture.id) rl::unload_font(cached.face);
+		*cached = {};
+	}
+	font = {};
+	font_slots = {};
+	font_clock = 0;
 	has_font = false;
 }
 
@@ -138,14 +209,18 @@ fn void unload_font()
 fn void text(String s, float x, float y, float size = 15, Color color = FG) => @pool()
 {
 	ZString zs = s.zstr_tcopy();
-	if (has_font) { rl::draw_text_ex(font, zs, { x, y }, size, 0, color); return; }
+	if (has_font)
+	{
+		rl::draw_text_ex(*sized_font(size), zs, { text_pixel(x), text_pixel(y) }, text_size(size), 0, color);
+		return;
+	}
 	rl::draw_text(zs, (int)x, (int)y, (int)size, color);
 }
 
 fn float text_w(String s, float size = 15) => @pool()
 {
 	ZString zs = s.zstr_tcopy();
-	if (has_font) return rl::measure_text_ex(font, zs, size, 0)[0];
+	if (has_font) return rl::measure_text_ex(*sized_font(size), zs, text_size(size), 0)[0];
 	return (float)rl::measure_text(zs, (int)size);
 }
 
