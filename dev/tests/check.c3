@@ -98,6 +98,26 @@ fn void check_sys() => @pool()
 	char[1024] rp;
 	sys::realpath(&rp, txt::join(root, "x/y/.."));
 	expect_str(txt::view(&rp), txt::join(root, "x"), "realpath");
+	// Exercise sorting above the small-list threshold, plus empty and bounded slices.
+	String large = txt::join(root, "large");
+	expect(sys::mkdirs(large), "large listing mkdir");
+	expect(sys::list_dir(large, &e, true) == 0, "list_dir empty");
+	for (int i = 127; i >= 0; i--)
+	{
+		expect(sys::write_file(txt::join(large, string::tformat("file-%03d", i)), ""), "large listing fixture");
+	}
+	expect(sys::mkdirs(txt::join(large, "z-folder")), "large listing dir");
+	sys::Entry[160] many;
+	int count = sys::list_dir(large, &many, true);
+	expect(count == 129 && many[0].dir, "large listing dirs first");
+	bool ordered = count == 129;
+	for (int i = 2; i < count; i++)
+	{
+		if (txt::icmp(txt::view(&many[i - 1].name), txt::view(&many[i].name)) > 0) ordered = false;
+	}
+	expect(ordered, "large listing sorted");
+	expect(sys::list_dir(large, e[:1], true) == 1, "list_dir bounded output");
+	expect(sys::list_dir(large, e[:0], true) == 0, "list_dir zero capacity");
 	// clean up
 	libc::system(string::tformat("rm -rf '%s'", root).zstr_tcopy());
 }

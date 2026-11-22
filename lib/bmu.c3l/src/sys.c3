@@ -1,5 +1,5 @@
 module bmu::sys;
-import std::io, std::core::string, libc;
+import std::io, std::core::string, std::sort, libc;
 import bmu::txt;
 
 // bmu::sys - thin POSIX layer (Linux x86_64, glibc or musl): file tests, mkdir -p,
@@ -151,25 +151,15 @@ fn int list_dir(String dir, Entry[] out, bool hidden) => @pool()
 		n++;
 	}
 	c_closedir(d);
-	// insertion sort: dirs first, then case-insensitive name
-	for (int i = 1; i < n; i++)
-	{
-		Entry key = out[i];
-		int j = i - 1;
-		while (j >= 0 && entry_less(&key, &out[j]))
-		{
-			out[j + 1] = out[j];
-			j--;
-		}
-		out[j + 1] = key;
-	}
+	// In-place O(n log n) sorting instead of quadratic insertion sort.
+	sort::quicksort(out[:n], &entry_compare);
 	return n;
 }
 
-fn bool entry_less(Entry* a, Entry* b)
+fn int entry_compare(Entry* a, Entry* b)
 {
-	if (a.dir != b.dir) return a.dir;
-	return txt::icmp(txt::view(&a.name), txt::view(&b.name)) < 0;
+	if (a.dir != b.dir) return a.dir ? -1 : 1;
+	return txt::icmp(txt::view(&a.name), txt::view(&b.name));
 }
 
 // Small file helpers ---------------------------------------------------------
