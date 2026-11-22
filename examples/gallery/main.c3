@@ -4,9 +4,9 @@ import raylib6::rl;
 import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 
 // Every bmu widget on one screen: buttons, icon buttons, inputs, checkboxes,
-// dropdown, scrolling list, tiles, toast, tooltip, a modal dialog and the file picker.
+// dropdown, scrolling list, tiles, context menu, toast, tooltip, a modal dialog and the file picker.
 //   c3c build example-gallery && ./build/example-gallery
-//   ./build/example-gallery --shot out.png [--dialog | --picker]   (screenshot for checks)
+//   ./build/example-gallery --shot out.png [--dialog | --picker | --menu]   (screenshot for checks)
 
 // input ids: any int, unique per field on screen (picker uses 9000+)
 const int ID_SEARCH = 1;
@@ -16,6 +16,9 @@ const int ID_NOTE = 3;
 // picker purposes: what the picker was opened for
 const int PICK_FILE = 1;
 const int PICK_DIR = 2;
+
+// context menu ids
+const int MENU_ITEM = 1;
 
 char[128] search;
 char[1024] path;
@@ -42,6 +45,7 @@ fn void main(String[] args)
 	foreach (a : args)
 	{
 		if (a == "--dialog") dialog_open = true;
+		if (a == "--menu") { list_sel = 2; ui::menu_open(MENU_ITEM, 160, 190); }
 		if (a == "--picker") picker::start(PICK_FILE, FILE, "Pick an image", sys::home(), &image_filter);
 	}
 	picker::add_place(ui::I_IMAGE, "Pictures", txt::join(sys::home(), "Pictures"));
@@ -52,6 +56,7 @@ fn void main(String[] args)
 	{
 		ui::frame_begin(dialog_open || picker::open);
 		draw_main();
+		draw_menu();                         // context menu: after the window, before modals
 		ui::layer = 1;                       // modals: only layer 1 reacts while one is open
 		if (dialog_open) draw_dialog();
 		if (picker::open) picker::draw();
@@ -91,6 +96,7 @@ fn void draw_main() => @pool()
 		ui::tile({ r.x + 6, r.y + 6, 36, 36 }, null, it);
 		ui::text_fit(it, r.x + 52, r.y + 14, r.width - 60, 16, ui::FG);
 		if (ui::clicked(r)) list_sel = (int)i;
+		if (ui::right_clicked(r)) { list_sel = (int)i; ui::menu_open(MENU_ITEM); }
 		y += row;
 	}
 	ui::end_clip();
@@ -109,7 +115,7 @@ fn void draw_main() => @pool()
 	y += 52;
 	if (ui::icon_button({ x, y, 40, 40 }, ui::I_GEAR, ui::FG4, "Open a dialog")) dialog_open = true;
 	ui::icon_button({ x + 48, y, 40, 40 }, ui::I_REFRESH, ui::AQUA, "Icon button with a tooltip");
-	ui::text("<- hover for tooltips", x + 100, y + 12, 14, ui::GRAY);
+	ui::text("<- hover for tooltips · right-click a list row for a menu", x + 100, y + 12, 14, ui::GRAY);
 	y += 64;
 
 	ui::text("Inputs", x, y, 18, ui::FG); y += 32;
@@ -133,6 +139,18 @@ fn void draw_main() => @pool()
 		opt_a ? "on" : "off", opt_b ? "on" : "off", (int)(ui::scale * 100 + 0.5f)), x, y, 14, ui::GRAY);
 	y += 30;
 	ui::text_tail("/a/very/long/path/that/only/shows/its/end/because/text_tail/cuts/the/front.txt", x, y, 400, 14, ui::FG4);
+}
+
+fn void draw_menu() => @pool()
+{
+	if (!ui::menu_begin(MENU_ITEM)) return;
+	String name = list_sel >= 0 ? ITEMS[list_sel] : "?";
+	if (ui::menu_item(string::tformat("Open %s", name), ui::I_FOLDER_OPEN, "Enter")) ui::toast(string::tformat("Open %s", name));
+	if (ui::menu_item("Copy", ui::I_COPY, "Ctrl+C")) ui::toast("Copied");
+	ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", false);
+	ui::menu_sep();
+	if (ui::menu_item("Delete", ui::I_TRASH, "Del")) ui::toast("Deleted (not really)", ui::RED);
+	ui::menu_end();
 }
 
 fn void draw_dialog()

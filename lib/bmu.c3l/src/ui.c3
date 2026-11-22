@@ -62,10 +62,42 @@ const String I_LIST   = "";
 const String I_EYE    = "";
 const String I_STAR   = "";
 
+const String I_COPY   = "\uF0C5";
+const String I_CUT    = "\uF0C4";
+const String I_PASTE  = "\uF0EA";
+const String I_EDIT   = "\uF040";
+const String I_BACK   = "\uF060";
+const String I_FORWARD = "\uF061";
+const String I_LEFT   = "\uF053";
+const String I_GRID   = "\uF00A";
+const String I_MENU   = "\uF0C9";
+const String I_BOOKMARK = "\uF02E";
+const String I_LINK   = "\uF0C1";
+const String I_LOCK   = "\uF023";
+const String I_EXTERNAL = "\uF08E";
+const String I_UNDO   = "\uF0E2";
+const String I_EYE_OFF = "\uF070";
+const String I_SORT_UP = "\uF0DE";
+const String I_SORT_DOWN = "\uF0DD";
+const String I_DESKTOP = "\uF108";
+const String I_DOWNLOAD = "\uF019";
+const String I_MUSIC  = "\uF001";
+const String I_VIDEO  = "\uF008";
+const String I_FILE_TEXT = "\uF0F6";
+const String I_FILE_IMAGE = "\uF1C5";
+const String I_FILE_AUDIO = "\uF1C7";
+const String I_FILE_VIDEO = "\uF1C8";
+const String I_FILE_ARCHIVE = "\uF1C6";
+const String I_FILE_CODE = "\uF1C9";
+const String I_FILE_PDF = "\uF1C1";
+
 const int[*] ICON_CODEPOINTS = {
 	0xF04B, 0xF04D, 0xF067, 0xF07B, 0xF07C, 0xF15B, 0xF013, 0xF002, 0xF1F8, 0xF062,
 	0xF015, 0xF0A0, 0xF11B, 0xF17A, 0xF017, 0xF00C, 0xF00D, 0xF078, 0xF054, 0xF021,
 	0xF120, 0xF03E, 0xF0AD, 0xF1B6, 0xF0E7, 0xF071, 0xF05A, 0xF03A, 0xF06E, 0xF005,
+	0xF0C5, 0xF0C4, 0xF0EA, 0xF040, 0xF060, 0xF061, 0xF053, 0xF00A, 0xF0C9, 0xF02E,
+	0xF0C1, 0xF023, 0xF08E, 0xF0E2, 0xF070, 0xF0DE, 0xF0DD, 0xF108, 0xF019, 0xF001,
+	0xF008, 0xF0F6, 0xF1C5, 0xF1C7, 0xF1C8, 0xF1C6, 0xF1C9, 0xF1C1,
 	0x2022, 0x2014, 0x2026, 0x00B7,
 };
 
@@ -181,11 +213,16 @@ fn void begin_frame()
 	consumed = false;
 	now = rl::get_time();
 	layer = 0;
-	if (popup_open) top = POPUP_LAYER;
+	if (popup_open) { top = POPUP_LAYER; } else if (menu_id >= 0) { top = MENU_LAYER; }
 }
 
 fn void end_frame()
 {
+	if (menu_id >= 0 && menu_seen != menu_id)           // the app did not draw it this frame
+	{
+		if (menu_fresh) { menu_fresh = false; } else { menu_close(); }
+	}
+	menu_seen = -1;
 	draw_popup();
 	draw_toast();
 	rl::set_mouse_cursor(cursor);
@@ -821,6 +858,174 @@ fn void close_popup()
 {
 	popup_open = false;
 	top = dd_prev_top;
+}
+
+// Context menu ------------------------------------------------------------------------
+// ui::menu_open(ID) on a right click; every frame, after everything else on the window:
+//   if (ui::menu_begin(ID)) { if (ui::menu_item("Open", I_FOLDER_OPEN, "Enter")) ...; ui::menu_sep(); ...; ui::menu_end(); }
+// While open it owns input (top = MENU_LAYER). The height is measured while drawing, so
+// the first frame places the box with an estimate; nothing can be clicked in that frame.
+
+const int MENU_LAYER = 98;
+const float MENU_ROW = 30;
+const MAX_MENU_ITEMS = 32;
+
+struct MenuItem
+{
+	String label;
+	String icon;
+	String keys;
+	bool enabled;
+	bool sep;
+}
+
+int menu_id = -1;     // open menu, -1 = none
+int menu_seen = -1;   // menu_begin ran this frame for menu_id
+rl::RLVector2 menu_at;
+Rect menu_box;
+float menu_h;         // measured height (last frame)
+float menu_y;
+int menu_count;
+int menu_hot = -1;    // highlighted item (mouse or arrow keys)
+bool menu_fresh;      // opened this frame: ignore the opening click
+int menu_prev_top;
+int menu_saved_layer;
+MenuItem[MAX_MENU_ITEMS] menu_items;
+char[4096] menu_store;
+usz menu_off;
+
+<* Open context menu `id` at the mouse (or at `x, y` when given). Closes a dropdown. *>
+fn void menu_open(int id, float x = -1, float y = -1)
+{
+	if (popup_open) close_popup();
+	menu_prev_top = menu_id >= 0 ? menu_prev_top : top;
+	menu_id = id;
+	menu_at = x >= 0 ? (rl::RLVector2){ x, y } : rl::get_mouse_position();
+	menu_h = 0;
+	menu_hot = -1;
+	menu_fresh = true;
+	top = MENU_LAYER;
+	consumed = true;
+}
+
+fn void menu_close()
+{
+	if (menu_id < 0) return;
+	menu_id = -1;
+	top = menu_prev_top;
+}
+
+fn bool menu_is_open(int id) => menu_id == id;
+
+fn String menu_keep(String s)
+{
+	if (menu_off + s.len > menu_store.len) return "";
+	mem::copy(&menu_store[menu_off], s.ptr, s.len);
+	String r = (String)menu_store[menu_off:s.len];
+	menu_off += s.len;
+	return r;
+}
+
+fn Rect menu_place(float w, float h)
+{
+	float x = math::min(menu_at[0], sw() - w - 6);
+	float y = menu_at[1];
+	if (y + h > sh() - 6) y = math::max(6.0f, menu_at[1] - h);
+	return { math::max(6.0f, x), y, w, h };
+}
+
+<*
+ Start drawing menu `id`. Call after all other widgets of the frame (it must be on top).
+ @return "true while the menu is open: then add items and call menu_end()"
+*>
+fn bool menu_begin(int id, float w = 240)
+{
+	if (menu_id != id) return false;
+	menu_seen = id;
+	menu_count = 0;
+	menu_off = 0;
+	menu_box = menu_place(w, menu_h > 0 ? menu_h : 8);
+	menu_y = menu_box.y + 4;
+	menu_saved_layer = layer;
+	layer = MENU_LAYER;
+	return true;
+}
+
+<*
+ One entry: icon, label, shortcut hint on the right (`keys`, display only).
+ @return "true when chosen (click or Enter); the menu closes"
+*>
+fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true)
+{
+	if (menu_count >= MAX_MENU_ITEMS) return false;
+	Rect r = { menu_box.x + 4, menu_y, menu_box.width - 8, MENU_ROW };
+	menu_y += MENU_ROW;
+	int i = menu_count++;
+	menu_items[i] = { menu_keep(label), menu_keep(icon), menu_keep(keys), enabled, false };
+	if (menu_id < 0 || menu_fresh || !enabled) return false;
+	if (hover(r)) menu_hot = i;
+	bool hit = clicked(r) || (menu_hot == i && live() && (rl::is_key_pressed(rl::RLKeyboardKey.ENTER) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ENTER)));
+	if (hit) { menu_close(); consumed = true; }
+	return hit;
+}
+
+fn void menu_sep()
+{
+	if (menu_count >= MAX_MENU_ITEMS) return;
+	menu_items[menu_count++] = { .sep = true };
+	menu_y += 9;
+}
+
+<* Draw the menu, handle arrows / Esc / clicks outside. *>
+fn void menu_end()
+{
+	float h = menu_y - menu_box.y + 4;
+	bool was_fresh = menu_fresh;
+	menu_fresh = false;
+	if (menu_id >= 0)
+	{
+		menu_h = h;
+		Rect box = menu_place(menu_box.width, h);
+		rl::draw_rectangle_rounded({ box.x + 3, box.y + 5, box.width, box.height }, 0.04f, 6, { 0, 0, 0, 90 });
+		panel(box, BG1, 6);
+		outline(box, BG3, 6);
+		float y = box.y + 4;
+		for (int i = 0; i < menu_count; i++)
+		{
+			MenuItem* it = &menu_items[i];
+			if (it.sep) { hline(box.x + 10, y + 4, box.width - 20, BG3); y += 9; continue; }
+			Rect r = { box.x + 4, y, box.width - 8, MENU_ROW };
+			y += MENU_ROW;
+			if (it.enabled && i == menu_hot) { panel(r, BG2, 4); cursor = POINTING_HAND; }
+			Color c = it.enabled ? FG : BG3;
+			if (it.icon.len) text(it.icon, r.x + 10, r.y + 8, 14, it.enabled ? FG4 : BG3);
+			float kw = it.keys.len ? text_w(it.keys, 13) + 12 : 0;
+			text_fit(it.label, r.x + 34, r.y + 7, r.width - 44 - kw, 15, c);
+			if (it.keys.len) text(it.keys, r.x + r.width - kw, r.y + 8, 13, GRAY);
+		}
+		if (!was_fresh)
+		{
+			bool down = repeat(rl::RLKeyboardKey.DOWN);
+			bool up = repeat(rl::RLKeyboardKey.UP);
+			if (down || up) menu_step(down ? 1 : -1);
+			bool press = rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT) || rl::is_mouse_button_pressed(rl::RLMouseButton.RIGHT);
+			if (press && !consumed && !point_in(rl::get_mouse_position(), box)) { menu_close(); consumed = true; }
+			if (rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE)) menu_close();
+		}
+	}
+	layer = menu_saved_layer;
+}
+
+fn void menu_step(int d)
+{
+	for (int n = 0; n < menu_count; n++)
+	{
+		menu_hot += d;
+		if (menu_hot >= menu_count) menu_hot = 0;
+		if (menu_hot < 0) menu_hot = menu_count - 1;
+		if (!menu_items[menu_hot].sep && menu_items[menu_hot].enabled) return;
+	}
+	menu_hot = -1;
 }
 
 // Scrolling ---------------------------------------------------------------------------

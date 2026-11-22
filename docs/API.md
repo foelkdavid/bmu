@@ -22,7 +22,7 @@ Contents
 5. [Drawing helpers](#5-drawing-helpers)
 6. [Buttons and checkboxes](#6-buttons-and-checkboxes)
 7. [Text input](#7-text-input)
-8. [Dropdown](#8-dropdown)
+8. [Dropdown and context menu](#8-dropdown-and-context-menu)
 9. [Scrolling](#9-scrolling)
 10. [Tooltips and toasts](#10-tooltips-and-toasts)
 11. [Dialogs](#11-dialogs)
@@ -105,9 +105,16 @@ Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
 | `I_TIMES` (×) | `I_DOWN` (chevron) | `I_RIGHT` (chevron) | `I_REFRESH` |
 | `I_TERMINAL` | `I_IMAGE` | `I_WRENCH` | `I_STEAM` |
 | `I_BOLT` | `I_WARN` | `I_INFO` | `I_LIST` |
-| `I_EYE` | `I_STAR` | | |
+| `I_EYE` | `I_STAR` | `I_EYE_OFF` | `I_MENU` (≡) |
+| `I_COPY` | `I_CUT` | `I_PASTE` | `I_EDIT` (pencil) |
+| `I_BACK` (←) | `I_FORWARD` (→) | `I_LEFT` (chevron) | `I_GRID` |
+| `I_BOOKMARK` | `I_LINK` | `I_LOCK` | `I_EXTERNAL` |
+| `I_UNDO` | `I_SORT_UP` | `I_SORT_DOWN` | `I_DESKTOP` |
+| `I_DOWNLOAD` | `I_MUSIC` | `I_VIDEO` | `I_FILE_TEXT` |
+| `I_FILE_IMAGE` | `I_FILE_AUDIO` | `I_FILE_VIDEO` | `I_FILE_ARCHIVE` |
+| `I_FILE_CODE` | `I_FILE_PDF` | | |
 
-To add one: find its codepoint (e.g. on nerdfonts.com/cheat-sheet), add the `String` constant (`"\u{F0C7}"`) and pass
+To add one: find its codepoint (e.g. on nerdfonts.com/cheat-sheet), add the `String` constant (`"\uF0C7"`: C3 escapes are `\uXXXX`, not `\u{...}`) and pass
 the codepoint to `load_font`. To add it to the library, append to `ICON_CODEPOINTS` and the `I_*` list in `ui.c3`.
 
 ## 3. Colours
@@ -210,7 +217,7 @@ if (enter) submit();
 Gotchas: ids must be unique among fields drawn in the same frame, and the same field must keep its id every frame.
 Text size inside inputs is fixed at 15 px. Undo snapshots hold 1023 bytes: longer buffers undo truncated.
 
-## 8. Dropdown
+## 8. Dropdown and context menu
 
 ```c3
 // sketch
@@ -226,6 +233,36 @@ if (ui::dropdown(20, { x, y, 220, 36 }, &sizes, &size_sel)) apply_size();
 - The choice is written to `*sel` **the next frame** the dropdown is drawn, and that call returns true.
 - Items are copied when the list opens (max 64 items, 8 KB text), so temp strings are fine.
 - While open, the popup owns all input (`popup_open`, `top = 99`); it is drawn by `frame_end`.
+
+### Context menu
+
+```c3
+// sketch
+const int MENU_ROW = 1;                                    // your menu ids
+if (ui::right_clicked(row)) { selected = i; ui::menu_open(MENU_ROW); }
+// every frame, after all other layer 0 widgets (and before modals):
+if (ui::menu_begin(MENU_ROW))
+{
+	if (ui::menu_item("Open", ui::I_FOLDER_OPEN, "Enter")) open(selected);
+	if (ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", can_paste)) paste();
+	ui::menu_sep();
+	if (ui::menu_item("Delete", ui::I_TRASH, "Del")) delete(selected);
+	ui::menu_end();
+}
+```
+
+| | |
+|---|---|
+| `fn void menu_open(int id, float x = -1, float y = -1)` | Open menu `id` at the mouse (or at `x, y`). Closes an open dropdown, consumes the click, gives the menu the input (`top = MENU_LAYER`, 98) from now on. Remember yourself what it was opened for. |
+| `fn bool menu_begin(int id, float w = 240)` | True while `id` is open: then add items and call `menu_end()`. Call it **after** the widgets it should cover. A menu not drawn for a frame closes. |
+| `fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true)` | One row (30 px): icon, label, `keys` hint right-aligned in GRAY (display only). True when clicked or Enter was pressed on it; the menu closes. Disabled rows are greyed and skipped by the arrow keys. |
+| `fn void menu_sep()` | Separator line. |
+| `fn void menu_end()` | Draws the box (flipped up / shifted left to stay in the window), handles ↑/↓, Esc and clicks outside (they close it and are consumed). |
+| `fn void menu_close()`, `fn bool menu_is_open(int id)`, `int menu_id` | Close from code; query (−1 = none open). |
+
+Gotchas: labels are copied, so temp strings are fine. The menu measures its height while drawing, so the first frame
+places it with an estimate; nothing can be clicked in that frame anyway. Your own shortcuts guarded with `ui::top == 0`
+are off while it is open.
 
 ## 9. Scrolling
 
@@ -351,11 +388,12 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 |---|---|
 | input text | `buf.len − 1` bytes; undo/redo 48 steps of ≤1023 bytes |
 | dropdown | 64 items, 8 KB of item text |
+| context menu | 32 rows (items + separators), 4 KB of label text |
 | tooltip / toast | 255 / 511 bytes |
 | picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
 | clip | one level (`begin_clip` doesn't nest) |
-| layers | 0 and 1 for app use (more work too: any int, one is active); 99 = dropdown popup |
+| layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
 
 ## 17. Low level: without the app layer
 

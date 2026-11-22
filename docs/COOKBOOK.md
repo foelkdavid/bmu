@@ -63,6 +63,7 @@ fn int filtered_list(Rect area, String[] items, String filter)
 		ui::tile({ r.x + 6, r.y + 6, 32, 32 }, null, it);
 		ui::text_fit(it, r.x + 48, r.y + 13, r.width - 56, 15, ui::FG);
 		if (ui::clicked(r)) { list_sel = (int)i; clicked = (int)i; }
+		if (ui::right_clicked(r)) fruit_menu_open((int)i);
 	}
 	ui::end_clip();
 	ui::scrollbar(area, list_scroll, content);
@@ -110,6 +111,30 @@ fn bool confirm_dialog(String what) => @pool()
 	}
 	if (ui::button({ box.x + box.width - 270, by, 100, 40 }, "Cancel")) confirm_open = false;
 	return false;
+}
+```
+
+## A right-click menu
+
+Open it on `right_clicked`, draw it after the rest of the window. It owns the input while open.
+
+```c3
+const int MENU_FRUIT = 1;
+int menu_for = -1;                 // what the menu was opened for
+
+fn void fruit_menu_open(int i) { menu_for = i; list_sel = i; ui::menu_open(MENU_FRUIT); }
+
+// call after the window's widgets, before the modals
+fn void fruit_menu(String[] items) => @pool()
+{
+	if (!ui::menu_begin(MENU_FRUIT)) return;
+	String name = menu_for >= 0 ? items[menu_for] : "?";
+	if (ui::menu_item(string::tformat("Eat %s", name), ui::I_PLAY, "Enter")) ui::toast(string::tformat("Ate %s", name));
+	if (ui::menu_item("Copy name", ui::I_COPY, "Ctrl+C")) rl::set_clipboard_text(name.zstr_tcopy());
+	ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", false);      // disabled
+	ui::menu_sep();
+	if (ui::menu_item("Delete…", ui::I_TRASH, "Del")) confirm_open = true;
+	ui::menu_end();
 }
 ```
 
@@ -428,6 +453,7 @@ fn void cookbook_frame() => @pool()
 			ui::text(sys::read_tail("/tmp/cookbook-ls.log", 400), x, y, 13, ui::FG4);
 	}
 
+	fruit_menu(&fruits);
 	ui::layer = 1;
 	if (confirm_open && confirm_dialog(list_sel >= 0 ? fruits[list_sel] : "?")) ui::toast("Deleted (not really)", ui::RED);
 	if (picker::open) picker::draw();

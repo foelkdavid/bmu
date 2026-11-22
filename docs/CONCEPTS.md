@@ -39,6 +39,7 @@ used yet?". You choose the layer you draw on with `ui::layer`, and `frame_begin(
 frame_begin(modal = dialog_open || picker::open)  ->  top = modal ? 1 : 0
 layer 0: main window widgets      (dead while a modal is open: no hover, no clicks)
 layer 1: dialog(s), picker last   (live while a modal is open)
+layer 98: context menu (menu_open .. menu_end; owns input while open)
 frame_end: dropdown popup (layer 99, owns input while open), tooltip, toast
 ```
 

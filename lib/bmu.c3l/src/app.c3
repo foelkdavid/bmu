@@ -96,7 +96,7 @@ fn bool running() => !quit && !rl::window_should_close();
 fn void frame_begin(bool modal = false)
 {
 	begin_frame();
-	if (!popup_open) top = modal ? 1 : 0;
+	if (!popup_open && menu_id < 0) top = modal ? 1 : 0;
 	zoom_changed = false;
 	if (ctrl_down())
 	{
