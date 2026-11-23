@@ -1,0 +1,27 @@
+# GLFW 3.4 (raylib 6.0) Wayland: drag & drop never updates the cursor position, so an app cannot tell
+# where a drop lands. Report the drag position (enter + motion) as cursor movement. Applied by build-raylib.sh.
+--- a/src/external/glfw/src/wl_window.c	2026-11-23 11:52:09.338899980 +0100
++++ b/src/external/glfw/src/wl_window.c	2026-11-23 11:52:09.340135401 +0100
+@@ -2004,7 +2004,11 @@
+         return;
+ 
+     if (_glfw.wl.dragOffer)
++    {
+         wl_data_offer_accept(offer, serial, "text/uri-list");
++        // bmu patch: pointer events stop during a drag; report the drag position as the cursor position
++        _glfwInputCursorPos(_glfw.wl.dragFocus, wl_fixed_to_double(x), wl_fixed_to_double(y));
++    }
+     else
+     {
+         wl_data_offer_accept(offer, serial, NULL);
+@@ -2029,6 +2033,10 @@
+                                    wl_fixed_t x,
+                                    wl_fixed_t y)
+ {
++    // bmu patch: keep the cursor position current while something is dragged over the window,
++    // so the application knows where a drop lands
++    if (_glfw.wl.dragFocus)
++        _glfwInputCursorPos(_glfw.wl.dragFocus, wl_fixed_to_double(x), wl_fixed_to_double(y));
+ }
+ 
+ static void dataDeviceHandleDrop(void* userData,
