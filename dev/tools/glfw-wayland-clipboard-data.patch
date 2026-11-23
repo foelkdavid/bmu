@@ -1,7 +1,8 @@
 # GLFW 3.4 (raylib 6.0) Wayland can only put text on the clipboard. Add bmuSetClipboardData(): any MIME types
-# (e.g. image/png + text/uri-list); pastes are written on a short-lived thread (SIGPIPE blocked). Applied by build-raylib.sh.
---- a/src/external/glfw/src/wl_window.c	2026-11-23 14:04:44.304007648 +0100
-+++ b/src/external/glfw/src/wl_window.c	2026-11-23 14:04:56.725215725 +0100
+# (e.g. image/png + text/uri-list); pastes are written on a short-lived thread (blocking writes even when the
+# reader made the pipe non-blocking; SIGPIPE blocked). Applied by build-raylib.sh.
+--- a/src/external/glfw/src/wl_window.c	2026-11-23 14:14:39.438706931 +0100
++++ b/src/external/glfw/src/wl_window.c	2026-11-23 14:14:39.730580343 +0100
 @@ -41,6 +41,8 @@
  #include <sys/mman.h>
  #include <sys/timerfd.h>
@@ -11,7 +12,7 @@
  #include <linux/input-event-codes.h>
  
  #include "wayland-client-protocol.h"
-@@ -3082,11 +3084,74 @@
+@@ -3082,11 +3084,85 @@
      }
  }
  
@@ -33,11 +34,22 @@
 +    sigemptyset(&pipe_set);
 +    sigaddset(&pipe_set, SIGPIPE);
 +    pthread_sigmask(SIG_BLOCK, &pipe_set, NULL);
++    // Readers often create the pipe non-blocking: switch our end to blocking, and wait for space on EAGAIN,
++    // so large payloads are never cut short.
++    const int flags = fcntl(w->fd, F_GETFL);
++    if (flags != -1 && (flags & O_NONBLOCK))
++        fcntl(w->fd, F_SETFL, flags & ~O_NONBLOCK);
 +    size_t done = 0;
 +    while (done < w->size)
 +    {
 +        const ssize_t n = write(w->fd, w->data + done, w->size - done);
 +        if (n == -1 && errno == EINTR) continue;
++        if (n == -1 && (errno == EAGAIN || errno == EWOULDBLOCK))
++        {
++            struct pollfd pfd = { w->fd, POLLOUT, 0 };
++            if (poll(&pfd, 1, 10000) <= 0) break; // reader gone or stuck for 10 s
++            continue;
++        }
 +        if (n <= 0) break;
 +        done += (size_t) n;
 +    }
@@ -86,7 +98,7 @@
      // Ignore it if this is an outdated or invalid request
      if (_glfw.wl.selectionSource != source ||
          strcmp(mimeType, "text/plain;charset=utf-8") != 0)
-@@ -3139,6 +3204,7 @@
+@@ -3139,6 +3215,7 @@
  
  void _glfwSetClipboardStringWayland(const char* string)
  {
@@ -94,7 +106,7 @@
      if (_glfw.wl.selectionSource)
      {
          wl_data_source_destroy(_glfw.wl.selectionSource);
-@@ -3172,6 +3238,43 @@
+@@ -3172,6 +3249,43 @@
                                   _glfw.wl.serial);
  }
  
