@@ -609,6 +609,82 @@ fn void select_word(char[] buf, usz at)
  Single line text field. Returns true when the content changed.
  `submitted` (optional) is set when Enter was pressed.
 *>
+extern fn void explicit_bzero(void* p, usz n) @cname("explicit_bzero") @private;
+
+<* Zero a buffer (e.g. a password) in a way the compiler cannot drop. *>
+fn void wipe(char[] buf) => explicit_bzero(buf.ptr, buf.len);
+
+<*
+ Password field: shows one bullet per character. Typing and paste append, Backspace / Ctrl+Backspace / Ctrl+U delete,
+ Enter sets `submitted`. No caret movement, selection, copy or undo history, so the secret is only ever in `buf`:
+ wipe(&buf) when done. Returns true when the text changed.
+*>
+fn bool secret_input(int id, Rect r, char[] buf, String placeholder = "", bool* submitted = null)
+{
+	float pad = 10;
+	float tx = r.x + pad + 24;
+	float avail = r.x + r.width - pad - tx;
+	bool h = hover(r);
+	if (h) cursor = IBEAM;
+	if (rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT) && live())
+	{
+		if (h) { if (focus != id) { focus = id; caret_blink = now; } consumed = true; }
+		else if (focus == id) { focus = -1; }
+	}
+	bool f = focus == id && layer == top;
+	panel(r, BG_HARD, 5);
+	outline(r, f ? DIM_YELLOW : (h ? BG2 : BG1), 5, 1);
+	bool changed;
+	if (f)
+	{
+		bool ctrl = ctrl_down();
+		int ch = rl::get_char_pressed();
+		while (ch > 0)
+		{
+			if (!ctrl) { caret = txt::view(buf).len; changed |= insert_codepoint(buf, ch); }
+			ch = rl::get_char_pressed();
+		}
+		if (repeat(rl::RLKeyboardKey.BACKSPACE))
+		{
+			usz len = txt::view(buf).len;
+			if (ctrl) { wipe(buf); }
+			else if (len) { usz p = prev_char(buf, len); for (usz i = p; i < len; i++) buf[i] = 0; }
+			changed = true;
+		}
+		if (ctrl && letter('u')) { wipe(buf); changed = true; }
+		if (ctrl && letter('v'))
+		{
+			ZString clip_text = rl::get_clipboard_text();
+			if (clip_text)
+			{
+				caret = txt::view(buf).len;
+				foreach (c : clip_text.str_view()) { if (c != '\n' && c != '\r') insert_byte(buf, c); }
+				changed = true;
+			}
+		}
+		if (rl::is_key_pressed(rl::RLKeyboardKey.ENTER) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ENTER)) { if (submitted) *submitted = true; }
+		if (rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE)) focus = -1;
+		if (changed) caret_blink = now;
+	}
+	text(I_LOCK, r.x + pad, r.y + (r.height - 14) / 2, 14, GRAY);
+	float ty = r.y + (r.height - 15) / 2 - 1;
+	// One bullet per codepoint, capped to the visible width (the length is not shown beyond that).
+	int n;
+	foreach (c : txt::view(buf)) if ((c & 0xC0) != 0x80) n++;
+	if (n == 0 && !f) { text(placeholder, tx, ty, 15, BG4); return changed; }
+	char[192] dots;
+	int fit = math::min(n, (int)(avail / math::max(1.0f, text_w("•", 15))) - 1, 64);
+	usz k;
+	for (int i = 0; i < fit; i++) { dots[k++] = 0xE2; dots[k++] = 0x80; dots[k++] = 0xA2; }
+	String shown = (String)dots[:k];
+	text(shown, tx, ty, 15, FG);
+	if (f && (now - caret_blink) - math::floor(now - caret_blink) < 0.6)
+	{
+		rl::draw_rectangle_rec({ tx + text_w(shown, 15), r.y + 7, 2, r.height - 14 }, YELLOW);
+	}
+	return changed;
+}
+
 fn bool input(int id, Rect r, char[] buf, String placeholder = "", bool* submitted = null, String icon = "")
 {
 	float pad = 10;

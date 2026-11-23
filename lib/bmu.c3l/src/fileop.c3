@@ -35,6 +35,14 @@ extern fn CInt c_syncfs(CInt fd) @cname("syncfs") @private;
 extern fn long c_syscall(long n, ...) @cname("syscall") @private;
 extern fn CInt c_getpid() @cname("getpid") @private;
 extern fn CInt* c_errno() @cname("__errno_location") @private;
+extern fn void explicit_bzero(void* p, usz n) @cname("explicit_bzero") @private;
+extern fn CInt c_pipe2(CInt* fds, CInt flags) @cname("pipe2") @private;
+extern fn CInt c_poll(PollFd* fds, ulong n, CInt timeout) @cname("poll") @private;
+extern fn CUInt c_geteuid() @cname("geteuid") @private;
+extern fn sz c_readlink_exe(ZString path, char* buf, usz n) @cname("readlink") @private;
+extern fn CInt c_getrandom(void* buf, usz n, CUInt flags) @cname("getrandom") @private;
+struct PollFd @private { CInt fd; short events; short revents; }
+extern fn CInt c_lchown(ZString path, uint uid, uint gid) @cname("lchown") @private;
 
 struct Timespec @private { long sec; long nsec; }
 
@@ -47,6 +55,7 @@ const CInt O_NOFOLLOW @private = 0x20000;
 const CInt O_CLOEXEC @private = 0x80000;
 const CInt AT_FDCWD @private = -100;
 const CInt AT_SYMLINK_NOFOLLOW @private = 0x100;
+const CInt ENOENT @private = 2;
 const CInt EINTR @private = 4;
 const CInt EEXIST @private = 17;
 const CInt EXDEV @private = 18;
@@ -84,6 +93,7 @@ struct Progress
 	char[256] current;   // name being processed
 	char[256] conflict;  // name that exists in the target (state CONFLICT)
 	char[512] error;     // state FAILED: what went wrong
+	CInt err;            // errno of that error (0 = none / not a system error): EACCES / EPERM mean "permission denied"
 }
 
 struct Item @private
@@ -95,6 +105,7 @@ struct Item @private
 	bool started;        // temporary created / rename done (rollback needed)
 	bool aside;          // existing target moved to its `.sms-old` name
 	bool committed;
+	bool missing;        // DELETE: the item was already gone (retry after a partial failure)
 	ulong dev;
 }
 
@@ -122,6 +133,11 @@ struct Job
 	int count;
 	char* buf;
 	int pid;
+	bool elevated;       // run through the root helper (start_elevated)
+	char[512] secret;    // password for sudo; wiped as soon as it is written
+	bool own_target;     // helper as root: new files get the target folder's owner
+	uint own_uid;
+	uint own_gid;
 	char[4096] sp;       // scratch paths (no per-level buffers: deep trees stay cheap on small thread stacks)
 	char[4096] dp;
 	usz sl;
@@ -139,6 +155,24 @@ struct Job
  resolved paths. Returns false when busy or the input is invalid (nothing started).
 *>
 fn bool Job.start(&self, Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false)
+{
+	return begin(self, kind, src_dir, names, dst_dir, permanent_fallback, {});
+}
+
+<*
+ Like start(), but the operation runs as root: `sudo -k -S` starts this program again in helper mode (apps must
+ call `fileop::helper_main` first thing in main, see is_helper). `password` is sent to sudo once and copied
+ nowhere else; wipe your buffer after this call. -k means sudo neither uses nor keeps cached credentials: every
+ elevated operation asks again. Progress, conflicts, cancel and rollback work as with start(). Not for TRASH or
+ RESTORE (root's trash is not the user's). A wrong password ends FAILED with error "Wrong password".
+*>
+fn bool Job.start_elevated(&self, Kind kind, String src_dir, String[] names, String dst_dir, char[] password, bool permanent_fallback = false)
+{
+	if (kind == TRASH || kind == RESTORE) return false;
+	return begin(self, kind, src_dir, names, dst_dir, permanent_fallback, password);
+}
+
+fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_dir, bool permanent_fallback, char[] password) @private
 {
 	if (self.started || !names.len || names.len > MAX_ITEMS) return false;
 	if (!src_dir.starts_with("/") || src_dir.len >= 4096 || dst_dir.len >= 4096) return false;
@@ -166,6 +200,14 @@ fn bool Job.start(&self, Kind kind, String src_dir, String[] names, String dst_d
 	if (catch self.wake.init()) { self.mutex.destroy(); libc::free(store); libc::free(items); libc::free(buf); return false; }
 	self.kind = kind;
 	self.permanent_fallback = permanent_fallback;
+	self.elevated = password.len > 0 || password.ptr != null;
+	if (self.elevated)
+	{
+		usz n = txt::view(password).len;
+		if (n >= self.secret.len) n = 0;
+		libc::memcpy(&self.secret, password.ptr, n);
+		self.secret[n] = 0;
+	}
 	txt::set(&self.src_dir, src_dir);
 	txt::set(&self.dst_dir, dst_dir);
 	self.names = store;
@@ -252,6 +294,7 @@ fn void reap(Job* self) @private
 	libc::free(self.names);
 	libc::free(self.items);
 	libc::free(self.buf);
+	explicit_bzero(&self.secret, self.secret.len);
 	self.names = null;
 	self.items = null;
 	self.buf = null;
@@ -299,14 +342,21 @@ fn int work(void* arg) @private
 	// Temp memory for the few name/format helpers (only the main thread has one implicitly).
 	@pool_init(mem, 64 * 1024)
 	{
-		switch (j.kind)
+		if (j.elevated)
 		{
-			case COPY:
-			case MOVE: end = transfer(j);
-			case TRASH: end = trash(j);
-			case DELETE: end = delete_all(j);
-			case COUNT: end = count_all(j);
-			case RESTORE: end = restore_all(j);
+			end = run_elevated(j);
+		}
+		else
+		{
+			switch (j.kind)
+			{
+				case COPY:
+				case MOVE: end = transfer(j);
+				case TRASH: end = trash(j);
+				case DELETE: end = delete_all(j);
+				case COUNT: end = count_all(j);
+				case RESTORE: end = restore_all(j);
+			}
 		}
 	};
 	j.mutex.lock();
@@ -367,6 +417,7 @@ fn bool fail(Job* j, String what, String name) @private
 		txt::set(&j.p.error, what);
 		if (name.len) { txt::append(&j.p.error, " \""); txt::append(&j.p.error, name); txt::append(&j.p.error, "\""); }
 		if (e) { txt::append(&j.p.error, ": "); txt::append(&j.p.error, libc::strerror(e).str_view()); }
+		j.p.err = e;
 	}
 	j.mutex.unlock();
 	return false;
@@ -522,8 +573,15 @@ fn bool copy_file(Job* j, libc::Stat* st) @private
 	Timespec[2] t = { { st.st_atime, st.st_atime_nsec }, { st.st_mtime, st.st_mtime_nsec } };
 	c_futimens(out, &t);
 	if (sys::c_close(out) != 0) return fail(j, "Cannot write", name);
+	own(j);
 	add_done(j, 1, 0);
 	return true;
+}
+
+<* Helper as root: a newly created node gets the target folder's owner (no root-owned files in a user's home). *>
+fn void own(Job* j) @private
+{
+	if (j.own_target) c_lchown(zp(&j.dp), j.own_uid, j.own_gid);
 }
 
 <* Copy the tree at j.sp to j.dp (j.dp must not exist). Special files are skipped and counted. *>
@@ -544,6 +602,7 @@ fn bool copy_tree(Job* j, int depth) @private
 			if (n < 0) return fail(j, "Cannot read link", name);
 			target[n] = 0;
 			if (c_symlink((ZString)&target, zp(&j.dp)) != 0) return fail(j, "Cannot create link", name);
+			own(j);
 			set_times(zp(&j.dp), &st);
 			add_done(j, 1, 0);
 			return true;
@@ -557,6 +616,7 @@ fn bool copy_tree(Job* j, int depth) @private
 			return true;
 	}
 	if (sys::c_mkdir(zp(&j.dp), 0o700) != 0) return fail(j, "Cannot create folder", name);
+	own(j);
 	void* d = sys::c_opendir(zp(&j.sp));
 	if (!d) return fail(j, "Cannot open folder", name);
 	usz skeep = j.sl;
@@ -692,6 +752,7 @@ fn State transfer(Job* j) @private
 		return FAILED;
 	}
 	bool same_dir = src_dir == dst_dir;
+	if (j.own_target) { j.own_uid = dst_st.st_uid; j.own_gid = dst_st.st_gid; }
 	// 1. Plan every item; nothing is written yet.
 	for (int i = 0; i < j.count; i++)
 	{
@@ -1102,6 +1163,8 @@ fn State delete_all(Job* j) @private
 	for (int i = 0; i < j.count; i++)
 	{
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
+		libc::Stat gone;
+		if (c_lstat(zp(&j.sp), &gone) != 0 && *c_errno() == ENOENT) { j.items[i].missing = true; continue; }
 		if (!scan(j, 0)) return j.p.error[0] ? FAILED : CANCELLED;
 	}
 	// Deleting inside the trash also removes each item's .trashinfo record (freedesktop spec).
@@ -1112,6 +1175,7 @@ fn State delete_all(Job* j) @private
 	set_state(j, RUNNING);
 	for (int i = 0; i < j.count; i++)
 	{
+		if (j.items[i].missing) continue;
 		set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
 		if (!remove_tree(j, 0, true, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
 		if (in_trash)
@@ -1220,4 +1284,407 @@ fn State trash(Job* j) @private
 		return FAILED;
 	}
 	return DONE;
+}
+
+// ------------------------------------------------------------------------------------- root helper
+
+// Elevation command; the program path and helper arguments follow. Tests set it to {} (run the helper directly).
+String[] elevate_cmd = { "sudo", "-k", "-S", "-p", "", "--" };
+const String HELPER_ARG = "--bmu-fileop-helper";
+
+<* True when this process was started as the root helper: call helper_main(args) and exit with its result. *>
+fn bool is_helper(String[] args) => args.len == 3 && args[1] == HELPER_ARG;
+
+// Line I/O on raw fds (no stdio buffering, no temp memory on the worker).
+struct LineReader @private
+{
+	CInt fd;
+	char[20480] buf;
+	usz len;
+	bool eof;
+}
+
+<* Next complete line (without the newline) into `out`, or false if none is buffered yet. *>
+fn bool LineReader.next(&self, char[] out)
+{
+	for (usz i = 0; i < self.len; i++)
+	{
+		if (self.buf[i] != '\n') continue;
+		usz n = i < out.len ? i : out.len - 1;
+		libc::memcpy(out.ptr, &self.buf, n);
+		out[n] = 0;
+		libc::memmove(&self.buf, &self.buf[i + 1], self.len - i - 1);
+		self.len -= i + 1;
+		return true;
+	}
+	return false;
+}
+
+<* Read what is available (call after poll says readable). *>
+fn void LineReader.fill(&self)
+{
+	if (self.len == self.buf.len) self.len = 0; // a line longer than the buffer is garbage: drop it
+	sz n = c_read(self.fd, &self.buf[self.len], self.buf.len - self.len);
+	if (n <= 0) { if (n == 0 || *c_errno() != EINTR) self.eof = true; return; }
+	self.len += (usz)n;
+}
+
+fn void wipe_reader(LineReader* r) @private => explicit_bzero(&r.buf, r.buf.len);
+
+fn bool write_all(CInt fd, char* p, usz n) @private
+{
+	while (n > 0)
+	{
+		sz w = c_write(fd, p, n);
+		if (w < 0 && *c_errno() == EINTR) continue;
+		if (w <= 0) return false;
+		p += w;
+		n -= (usz)w;
+	}
+	return true;
+}
+
+fn bool write_str(CInt fd, String s) @private => write_all(fd, s.ptr, s.len);
+
+<* Hex-encode `s` into `out` (names may contain any byte except '/' and NUL; lines stay lines). *>
+fn String hex_of(String s, char[] out) @private
+{
+	usz k;
+	foreach (c : s)
+	{
+		if (k + 2 >= out.len) break;
+		out[k++] = "0123456789abcdef"[c >> 4];
+		out[k++] = "0123456789abcdef"[c & 15];
+	}
+	return (String)out[:k];
+}
+
+<* Space-separated fields cannot be empty: "" travels as "-". *>
+fn String hex_field(String s, char[] out) @private => s.len ? hex_of(s, out) : "-";
+fn bool unhex_field(String s, char[] out) @private
+{
+	if (s == "-") { out[0] = 0; return true; }
+	return unhex(s, out);
+}
+
+fn bool unhex(String s, char[] out) @private
+{
+	if (s.len % 2 || s.len / 2 >= out.len) return false;
+	for (usz i = 0; i < s.len / 2; i++)
+	{
+		int hi = hex(s[i * 2]);
+		int lo = hex(s[i * 2 + 1]);
+		if (hi < 0 || lo < 0) return false;
+		out[i] = (char)(hi * 16 + lo);
+	}
+	out[s.len / 2] = 0;
+	return true;
+}
+
+fn void fail_text(Job* j, String text) @private
+{
+	j.mutex.lock();
+	if (!j.p.error[0]) txt::set(&j.p.error, text);
+	j.mutex.unlock();
+}
+
+<* Split a line into space-separated fields (in place). *>
+fn int fields(char[] line, String[] out) @private
+{
+	String s = txt::view(line);
+	int n;
+	usz start;
+	for (usz i = 0; i <= s.len && n < out.len; i++)
+	{
+		if (i < s.len && s[i] != ' ') continue;
+		if (i > start) out[n++] = s[start:i - start];
+		start = i + 1;
+	}
+	return n;
+}
+
+fn long num(String s) @private
+{
+	long v;
+	foreach (c : s) { if (c < '0' || c > '9') return v; v = v * 10 + (long)(c - '0'); }
+	return v;
+}
+
+<* Worker side of start_elevated: run sudo + helper, relay progress / conflicts / cancel. *>
+fn State run_elevated(Job* j) @private
+{
+	char[4096] exe;
+	sz el = c_readlink_exe("/proc/self/exe", &exe, exe.len - 1);
+	if (el <= 0) { explicit_bzero(&j.secret, j.secret.len); fail_text(j, "Cannot find the program to run as administrator"); return FAILED; }
+	exe[el] = 0;
+	char[16] rnd;
+	char[40] token;
+	c_getrandom(&rnd, rnd.len, 0);
+	hex_of((String)rnd[..], &token);
+	token[32] = 0;
+	ZString[16] argv;
+	int a;
+	foreach (c : elevate_cmd) { if (a < 12) argv[a++] = c.zstr_tcopy(); }
+	argv[a++] = (ZString)&exe;
+	argv[a++] = HELPER_ARG;
+	argv[a++] = (ZString)&token;
+	argv[a] = null;
+	CInt[2] in;
+	CInt[2] out;
+	CInt[2] err;
+	if (c_pipe2(&in, 0x80000) != 0 || c_pipe2(&out, 0x80000) != 0 || c_pipe2(&err, 0x80000) != 0)
+	{
+		explicit_bzero(&j.secret, j.secret.len);
+		fail(j, "Cannot start the administrator helper", "");
+		return FAILED;
+	}
+	CInt pid = sys::c_fork();
+	if (pid == 0)
+	{
+		sys::c_dup2(in[0], 0);
+		sys::c_dup2(out[1], 1);
+		sys::c_dup2(err[1], 2);
+		sys::c_execvpe(argv[0], &argv[0], sys::environ);
+		sys::c_exit(127);
+	}
+	sys::c_close(in[0]);
+	sys::c_close(out[1]);
+	sys::c_close(err[1]);
+	if (pid < 0)
+	{
+		explicit_bzero(&j.secret, j.secret.len);
+		sys::c_close(in[1]); sys::c_close(out[0]); sys::c_close(err[0]);
+		fail(j, "Cannot start the administrator helper", "");
+		return FAILED;
+	}
+	// The password is the first line sudo reads; nothing else is sent before the helper says READY.
+	usz sl = txt::view(&j.secret).len;
+	j.secret[sl] = '\n';
+	write_all(in[1], &j.secret, sl + 1);
+	explicit_bzero(&j.secret, j.secret.len);
+	State end = relay(j, in[1], out[0], err[0], txt::view(&token));
+	sys::c_close(in[1]);
+	sys::c_close(out[0]);
+	sys::c_close(err[0]);
+	CInt status;
+	// IDLE: the helper never reported an end. It either never got the job (wrong password, cancel at the
+	// password) or already exited; stopping sudo then cannot interrupt a running operation.
+	if (end == IDLE) sys::c_kill(pid, sys::SIGTERM);
+	sys::c_waitpid(pid, &status, 0);
+	if (end != IDLE) return end;
+	j.mutex.lock();
+	bool cancelled = j.cancel_req && !j.p.error[0];
+	j.mutex.unlock();
+	return cancelled ? CANCELLED : FAILED;
+}
+
+<* Returns the final state from the helper, or IDLE when it never finished (error already recorded). *>
+fn State relay(Job* j, CInt to, CInt from, CInt errfd, String token) @private
+{
+	LineReader* r = mem::new(LineReader);
+	defer { wipe_reader(r); free(r); }
+	r.fd = from;
+	char[1024] errbuf;
+	usz errlen;
+	char[2048] line;
+	bool ready;
+	bool cancel_sent;
+	bool conflict_open;
+	double start = (double)sys::now();
+	while (true)
+	{
+		PollFd[2] fds = { { from, 1, 0 }, { errfd, 1, 0 } };
+		c_poll(&fds, errfd >= 0 ? 2 : 1, 100);
+		if (fds[1].revents)
+		{
+			sz n = c_read(errfd, &errbuf[errlen], errbuf.len - 1 - errlen);
+			if (n > 0) { errlen += (usz)n; errbuf[errlen] = 0; }
+			else { sys::c_close(errfd); errfd = -1; }
+			String e = (String)errbuf[:errlen];
+			if (!ready && (e.contains("Sorry, try again") || e.contains("incorrect password")))
+			{
+				fail_text(j, "Wrong password");
+				return IDLE;
+			}
+		}
+		if (fds[0].revents) r.fill();
+		while (r.next(&line))
+		{
+			String[8] f;
+			int n = fields(&line, &f);
+			if (!n) continue;
+			if (!ready)
+			{
+				if (f[0] != "READY") continue;
+				ready = true;
+				// Job: token, then J kind fallback hex(src) hex(dst) count, then one hex name per line.
+				char[8300] l;
+				char[8200] h1;
+				char[8200] h2;
+				write_str(to, token); write_str(to, "\n");
+				String jl = string::tformat("J %d %d %s %s %d\n", (int)j.kind, j.permanent_fallback ? 1 : 0, hex_field(txt::view(&j.src_dir), &h1), hex_field(txt::view(&j.dst_dir), &h2), j.count);
+				write_str(to, jl);
+				for (int i = 0; i < j.count; i++) { write_str(to, hex_of(src_name(j, i), &l)); write_str(to, "\n"); }
+				set_state(j, SCANNING);
+				continue;
+			}
+			switch (f[0])
+			{
+				case "P":
+					if (n < 8) break;
+					j.mutex.lock();
+					if (!conflict_open) j.p.state = (State)num(f[1]);
+					j.p.files_done = (int)num(f[2]);
+					j.p.files_total = (int)num(f[3]);
+					j.p.bytes_done = (ulong)num(f[4]);
+					j.p.bytes_total = (ulong)num(f[5]);
+					j.p.skipped = (int)num(f[6]);
+					j.p.can_cancel = f[7] == "1";
+					j.mutex.unlock();
+				case "C":
+					char[256] name;
+					if (n >= 2 && unhex(f[1], &name)) { set_current(j, txt::view(&name)); }
+					else if (n == 1) { set_current(j, ""); }
+				case "Q":
+					char[256] name;
+					if (n < 3 || !unhex(f[2], &name)) break;
+					j.mutex.lock();
+					j.answered = false;
+					j.p.state = CONFLICT;
+					j.p.conflict_dir = f[1] == "1";
+					txt::set(&j.p.conflict, txt::view(&name));
+					j.mutex.unlock();
+					conflict_open = true;
+				case "E":
+					if (n < 3) break;
+					char[512] msg;
+					if (n >= 4 && unhex(f[3], &msg))
+					{
+						j.mutex.lock();
+						txt::set(&j.p.error, txt::view(&msg));
+						j.p.err = (CInt)num(f[2]);
+						j.mutex.unlock();
+					}
+					return (State)num(f[1]);
+			}
+		}
+		// Relay the UI's answers and cancel.
+		j.mutex.lock();
+		bool cancel = j.cancel_req;
+		bool answered = conflict_open && j.answered;
+		Answer reply = j.reply;
+		bool all = j.has_all;
+		if (answered) { j.answered = false; j.p.state = SCANNING; j.p.conflict[0] = 0; }
+		j.mutex.unlock();
+		if (answered && ready)
+		{
+			conflict_open = false;
+			write_str(to, string::tformat("A %d %d\n", (int)reply, all ? 1 : 0));
+		}
+		if (cancel && !cancel_sent)
+		{
+			if (!ready) return IDLE; // still at the password: stop sudo (nothing was started)
+			write_str(to, "X\n");
+			cancel_sent = true;
+		}
+		if (r.eof)
+		{
+			String e = ((String)errbuf[:errlen]).trim();
+			if (!e.len) e = "The administrator helper ended unexpectedly";
+			// sudo's own messages ("... is not in the sudoers file", "a password is required") explain the failure.
+			fail_text(j, e.starts_with("sudo: ") ? e[6..] : e);
+			return IDLE;
+		}
+		if (!ready && (double)sys::now() - start > 120) { fail_text(j, "No answer from sudo"); return IDLE; }
+	}
+}
+
+<*
+ Root helper entry: `if (fileop::is_helper(args)) return fileop::helper_main(args);` as the first line of main,
+ before any window or settings. Reads one job from stdin (after the token), runs it with the normal engine,
+ reports on stdout, exits. New files get the target folder's owner.
+*>
+fn int helper_main(String[] args) => @pool()
+{
+	String token = args[2];
+	if (!write_str(1, "READY\n")) return 1;
+	LineReader* r = mem::new(LineReader);
+	defer { wipe_reader(r); free(r); }
+	r.fd = 0;
+	char[16500] line;
+	// Anything before the token (e.g. a password sudo did not need) is discarded and wiped.
+	while (true)
+	{
+		while (!r.next(&line)) { r.fill(); if (r.eof) return 1; }
+		bool is_token = txt::view(&line) == token;
+		explicit_bzero(&line, line.len);
+		if (is_token) break;
+	}
+	while (!r.next(&line)) { r.fill(); if (r.eof) return 1; }
+	String[8] f;
+	if (fields(&line, &f) != 6 || f[0] != "J") return 1;
+	char[4096] src;
+	char[4096] dst;
+	if (!unhex_field(f[3], &src) || !unhex_field(f[4], &dst)) return 1;
+	int count = (int)num(f[5]);
+	Kind kind = (Kind)num(f[1]);
+	if (count <= 0 || count > MAX_ITEMS || (int)kind > (int)Kind.RESTORE) return 1;
+	String[] names = mem::talloc_array(String, (usz)count);
+	for (int i = 0; i < count; i++)
+	{
+		while (!r.next(&line)) { r.fill(); if (r.eof) return 1; }
+		char[256] name;
+		if (!unhex(txt::view(&line), &name)) return 1;
+		names[i] = txt::view(&name).tcopy();
+	}
+	Job* job = mem::new(Job);
+	defer free(job);
+	job.own_target = c_geteuid() == 0;
+	if (!begin(job, kind, txt::view(&src), names, txt::view(&dst), f[2] == "1", {}))
+	{
+		write_str(1, "E 7 0 \n");
+		return 1;
+	}
+	Progress p;
+	Progress last;
+	last.state = IDLE;
+	bool asked;
+	while (true)
+	{
+		PollFd[1] fds = { { 0, 1, 0 } };
+		if (c_poll(&fds, 1, 50) > 0 && fds[0].revents) r.fill();
+		while (r.next(&line))
+		{
+			String[4] g;
+			int n = fields(&line, &g);
+			if (n >= 3 && g[0] == "A") { job.answer((Answer)num(g[1]), g[2] == "1"); asked = false; }
+			if (n >= 1 && g[0] == "X") job.cancel();
+		}
+		if (r.eof) job.cancel(); // the app went away: roll back
+		if (job.finished(&p))
+		{
+			// Final numbers first, so the app sees complete totals.
+			write_str(1, string::tformat("P %d %d %d %d %d %d 0\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped));
+			char[1100] h;
+			write_str(1, string::tformat("E %d %d %s\n", (int)p.state, p.err, hex_of(txt::view(&p.error), &h)));
+			return p.state == DONE ? 0 : 1;
+		}
+		job.status(&p);
+		if (p.state == CONFLICT && !asked)
+		{
+			char[600] h;
+			write_str(1, string::tformat("Q %d %s\n", p.conflict_dir ? 1 : 0, hex_of(txt::view(&p.conflict), &h)));
+			asked = true;
+		}
+		if (p.state != last.state || p.files_done != last.files_done || p.bytes_done != last.bytes_done || p.files_total != last.files_total || p.can_cancel != last.can_cancel)
+		{
+			write_str(1, string::tformat("P %d %d %d %d %d %d %d\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped, p.can_cancel ? 1 : 0));
+		}
+		if (txt::view(&p.current) != txt::view(&last.current))
+		{
+			char[600] h;
+			write_str(1, string::tformat("C %s\n", hex_of(txt::view(&p.current), &h)));
+		}
+		last = p;
+	}
 }

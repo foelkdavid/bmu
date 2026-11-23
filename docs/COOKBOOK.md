@@ -508,6 +508,37 @@ fn void quit_guard()
 Pass `copy_progress(...) || ui::close_requested` (with your other modals) to the next `frame_begin`. On exit call
 `copier.close()`: it cancels and waits, so nothing is left half-written.
 
+## Retry as administrator
+
+When a file operation fails with "permission denied" (`p.err` 13 or 1), ask for the password and run the same
+job as root. The program's `main` must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`.
+
+```c3
+const int ID_ADMIN_PW = 60;
+char[256] admin_pw;
+bool admin_open;
+
+// Draw on layer 1 while admin_open; `retry` starts the elevated job (e.g. copier.start_elevated(..., &admin_pw)).
+fn void admin_dialog(String error, fileop::Job* job, String src_dir, String[] names, String dst_dir)
+{
+	ui::layer = 1;
+	Rect box = ui::dialog(480, 210);
+	bool close = ui::dialog_header(box, ui::I_LOCK, "Permission denied");
+	ui::text_fit(error, box.x + 20, box.y + 60, box.width - 40, 14, ui::FG4);
+	bool submitted;
+	if (!ui::focused(ID_ADMIN_PW)) ui::focus = ID_ADMIN_PW;
+	ui::secret_input(ID_ADMIN_PW, { box.x + 20, box.y + 90, box.width - 40, 38 }, &admin_pw, "Password", &submitted);
+	if (ui::button({ box.x + 20, box.y + 148, 140, 40 }, "Cancel")) close = true;
+	if (ui::button({ box.x + box.width - 200, box.y + 148, 180, 40 }, "Retry as admin", PRIMARY) || submitted)
+	{
+		job.start_elevated(COPY, src_dir, names, dst_dir, &admin_pw);
+		close = true;
+	}
+	if (close) { ui::wipe(&admin_pw); ui::unfocus(); admin_open = false; }
+	ui::layer = 0;
+}
+```
+
 ## Putting it together
 
 ```c3

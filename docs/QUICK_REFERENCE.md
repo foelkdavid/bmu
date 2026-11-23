@@ -102,6 +102,7 @@ fn void main(String[] args)
 | `icon_button(r, icon, color=FG4, tip="") -> bool` | square icon, hover background, tooltip |
 | `checkbox(x, y, label, &flag, hint="") -> bool` | toggles `flag`; true when toggled; 24 px tall |
 | `input(id, r, &buf, placeholder="", &submitted=null, icon="") -> bool` | one-line editor; true when text changed; `submitted` set on Enter |
+| `secret_input(id, r, &buf, placeholder, &submitted) -> bool`, `wipe(&buf)` | password field (bullets, no copy/undo) / zero a buffer for good |
 | `dropdown(id, r, items, &sel) -> bool` | `String[] items`, `int sel`; true the frame after a choice |
 | `menu_open(id, x=-1, y=-1)`; `if (menu_begin(id, w=240)) { menu_item(label, icon="", keys="", enabled=true) -> bool; menu_sep(); menu_end(); }` | right-click menu; draw it after the other widgets; owns input while open |
 | `scroll_wheel(area, scroll, content) -> float`, `scrollbar(area, scroll, content)` | wheel scrolling (clamped) / thin bar |
@@ -119,7 +120,7 @@ fn void main(String[] args)
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
-| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
+| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `start_elevated(..., &password)` runs it as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
 | **find** (`find::`) | |
 | `Finder.start(root, query, hidden)`, `.results()`, `.rel(i)` `.name(i)` `.folder(i)` `.is_dir(i)`, `.searching()`, `.limited()`, `.close()` | background recursive name search, breadth-first, same filesystem, append-only hits |
 | **txt** (`txt::`) — `char[]` buffers | |

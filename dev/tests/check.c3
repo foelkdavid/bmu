@@ -1,6 +1,6 @@
 module bmu::tests;
 import std::io, std::core::string, libc;
-import bmu::txt, bmu::sys, bmu::ui;
+import bmu::txt, bmu::sys, bmu::ui, bmu::fileop;
 
 // Headless checks (no window): txt helpers, sys file helpers, text-edit primitives.
 //   c3c build bmu-check && ./build/bmu-check     -> ALL BMU CHECKS PASSED
@@ -22,15 +22,18 @@ macro void expect_str(String got, String want, String what)
 	io::printfn("FAIL  %s: got \"%s\", want \"%s\"", what, got, want);
 }
 
-fn void main()
+fn int main(String[] args)
 {
+	if (fileop::is_helper(args)) return fileop::helper_main(args);
 	check_txt();
 	check_sys();
 	check_edit();
 	check_fileop();
 	check_find();
+	check_elevated();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
+	return 0;
 }
 
 fn void check_txt() => @pool()
