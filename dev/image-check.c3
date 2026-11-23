@@ -24,6 +24,11 @@ fn void main()
 	assert(wide.pixels.width == 1600 && wide.pixels.height == 800);
 	rl::unload_image(wide.pixels);
 	assert(!loader.take(&wide));
+	// JPEG must decode (raylib 6.0 disables it by default; build-raylib.sh enables it).
+	assert(loader.request("dev/fixtures/image-small.jpg"));
+	image::Result jpg = wait(&loader);
+	assert(jpg.status == READY && jpg.width == 5 && jpg.height == 4);
+	rl::unload_image(jpg.pixels);
 	// Per-loader limits: full size for a viewer, then a smaller preview edge.
 	image::Loader full;
 	defer full.close();

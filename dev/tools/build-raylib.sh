@@ -13,6 +13,7 @@ git clone -q --depth 1 --branch 6.0 https://github.com/raysan5/raylib "$work/ray
 # libdecor only without server-side decorations.
 for p in dev/tools/glfw-*.patch dev/tools/raylib-*.patch; do git -C "$work/raylib" apply "$PWD/$p"; done
 make -s -C "$work/raylib/src" -j"$(nproc)" PLATFORM=PLATFORM_DESKTOP_GLFW RAYLIB_LIBTYPE=STATIC RAYLIB_BUILD_MODE=RELEASE \
-    GLFW_LINUX_ENABLE_WAYLAND=TRUE GLFW_LINUX_ENABLE_X11=FALSE
+    GLFW_LINUX_ENABLE_WAYLAND=TRUE GLFW_LINUX_ENABLE_X11=FALSE \
+    CUSTOM_CFLAGS="-DSUPPORT_FILEFORMAT_JPG=1"   # raylib 6.0 ships JPEG decoding disabled
 cp "$work/raylib/src/libraylib.a" lib/raylib6.c3l/linux-x64/libraylib.a
 echo "built lib/raylib6.c3l/linux-x64/libraylib.a (raylib 6.0, GLFW Wayland only)"
