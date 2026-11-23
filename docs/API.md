@@ -436,7 +436,7 @@ no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all me
 
 | call/type | contract |
 |---|---|
-| `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent; deleting inside the trash's `files/` folder also removes the items' `.trashinfo` records. `COUNT` changes nothing: it only fills `files_total` (files, folders, links) and `bytes_total` (sum of file sizes), e.g. for a "delete 1,234 items, 4.2 GB?" question; cancel it with `close()` when the question goes away. False (nothing started) when busy, input invalid, or out of memory. |
+| `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent; deleting inside the trash's `files/` folder also removes the items' `.trashinfo` records. `COUNT` changes nothing: it only fills `files_total` (files, folders, links) and `bytes_total` (sum of file sizes), e.g. for a "delete 1,234 items, 4.2 GB?" question; cancel it with `close()` when the question goes away. `RESTORE` takes names in a trash's `files/` folder as `src_dir`/`names` and moves each item back to the path in its `info/NAME.trashinfo` record (recreating missing parent folders; existing targets go through the usual conflict answers), then removes the record. False (nothing started) when busy, input invalid, or out of memory. |
 | `job.busy() -> bool` | From `start` until `finished` reaped it. |
 | `job.status(Progress* out)` | Snapshot: `state`, `kind`, `items`, `files_done/total`, `bytes_done/total`, `skipped`, `can_cancel`, `current`, `conflict`, `conflict_dir`, `error`. `IDLE` when no job. |
 | `job.answer(Answer a, bool all = false)` | Reply in state `CONFLICT`: `REPLACE`, `SKIP`, `KEEP_BOTH` ("name (2).ext"); `all` reuses it for later conflicts of this job. |
@@ -460,7 +460,7 @@ How it stays safe (COPY / MOVE are all-or-nothing):
 - Cross-filesystem moves `syncfs` the target before deleting the sources. If the commit fails part way, finished
   items stay, the rest is undone and no source is deleted: nothing is lost, at worst something exists twice.
 - `TRASH` follows the freedesktop.org Trash spec (`files/` + `info/NAME.trashinfo`, collisions become `NAME.2`);
-  only the home trash, no per-volume `.Trash-UID` folders. Trash/delete cancel stops between items (no undo).
+  only the home trash, no per-volume `.Trash-UID` folders (RESTORE refuses relative recorded paths). Trash/delete/restore cancel stops between items (no undo); restoring across filesystems is refused.
 - Hard links are copied as separate files; owners are not preserved. Filesystems without `RENAME_NOREPLACE` use
   check-then-rename (a tiny race).
 

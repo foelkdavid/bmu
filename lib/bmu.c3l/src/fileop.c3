@@ -64,7 +64,7 @@ const int MAX_DEPTH = 128;       // folder nesting below an item
 const usz CHUNK = 4 * 1024 * 1024; // bytes per copy step (cancel / progress granularity)
 const usz FALLBACK_BUF = 1024 * 1024;
 
-enum Kind { COPY, MOVE, TRASH, DELETE, COUNT }
+enum Kind { COPY, MOVE, TRASH, DELETE, COUNT, RESTORE }
 enum State { IDLE, SCANNING, RUNNING, CONFLICT, FINISHING, DONE, CANCELLED, FAILED }
 enum Answer { REPLACE, SKIP, KEEP_BOTH }
 enum Plan @private { SKIP, RENAME, COPY }
@@ -134,7 +134,8 @@ struct Job
  Start an operation on `names` (plain names, no '/') inside `src_dir`. COPY / MOVE put them into `dst_dir`.
  TRASH moves them to the home trash; with `permanent_fallback` items on other filesystems are deleted
  permanently instead of failing. DELETE removes them permanently. COUNT only adds up files_total / bytes_total
- (for a size display). Directories should be absolute,
+ (for a size display). RESTORE takes names in a trash's `files/` folder and moves each back to the path in
+ its `info/NAME.trashinfo` record. Directories should be absolute,
  resolved paths. Returns false when busy or the input is invalid (nothing started).
 *>
 fn bool Job.start(&self, Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false)
@@ -305,6 +306,7 @@ fn int work(void* arg) @private
 			case TRASH: end = trash(j);
 			case DELETE: end = delete_all(j);
 			case COUNT: end = count_all(j);
+			case RESTORE: end = restore_all(j);
 		}
 	};
 	j.mutex.lock();
@@ -914,6 +916,136 @@ fn State rollback(Job* j) @private
 }
 
 // ------------------------------------------------------------------------------------------ trash/delete
+
+<* `<trash>/info/NAME.trashinfo` for an item in `<trash>/files` (j.src_dir). *>
+fn bool info_path(Job* j, String name, char[] out) @private
+{
+	usz n;
+	if (!set_path(out, &n, txt::dirname(txt::view(&j.src_dir)), "info") || !push(out, &n, name) || n + 11 >= out.len) return false;
+	txt::append(out, ".trashinfo");
+	return true;
+}
+
+fn int hex(char c) @private
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
+<* Original absolute path from the item's .trashinfo (Path= is percent-encoded). *>
+fn bool read_origin(Job* j, String name, char[] out) @private
+{
+	char[4096] info;
+	if (!info_path(j, name, &info)) { *c_errno() = 0; return fail(j, "Path too long", name); }
+	CInt fd = sys::c_open(zp(&info), O_RDONLY | O_CLOEXEC);
+	if (fd < 0) return fail(j, "No restore information for", name);
+	char[16384] text;
+	sz n = c_read(fd, &text, text.len - 1);
+	sys::c_close(fd);
+	if (n < 0) return fail(j, "Cannot read the restore information for", name);
+	String body = (String)text[:(usz)n];
+	sz? at = body.index_of("\nPath=");
+	usz start;
+	if (try at) { start = (usz)at + 6; }
+	else if (body.starts_with("Path=")) { start = 5; }
+	else { *c_errno() = 0; return fail(j, "No original path recorded for", name); }
+	usz k;
+	for (usz i = start; i < body.len && body[i] != '\n' && body[i] != '\r'; i++)
+	{
+		char c = body[i];
+		if (c == '%' && i + 2 < body.len && hex(body[i + 1]) >= 0 && hex(body[i + 2]) >= 0)
+		{
+			c = (char)(hex(body[i + 1]) * 16 + hex(body[i + 2]));
+			i += 2;
+		}
+		if (k + 1 >= out.len || c == 0) { *c_errno() = 0; return fail(j, "Invalid original path for", name); }
+		out[k++] = c;
+	}
+	out[k] = 0;
+	// Per-volume trashes may store relative paths; only the home trash (absolute paths) is supported.
+	if (!k || out[0] != '/') { *c_errno() = 0; return fail(j, "Unsupported original path for", name); }
+	return true;
+}
+
+<* mkdir -p for a restore target's parent (4095-byte paths). *>
+fn bool make_parents(char[] path) @private
+{
+	usz n = txt::view(path).len;
+	for (usz i = 1; i <= n; i++)
+	{
+		if (i < n && path[i] != '/') continue;
+		char saved = path[i];
+		path[i] = 0;
+		sys::c_mkdir(zp(path), 0o755);
+		path[i] = saved;
+	}
+	libc::Stat st;
+	return c_stat(zp(path), &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR;
+}
+
+fn State restore_all(Job* j) @private
+{
+	String src_dir = txt::view(&j.src_dir);
+	add_total(j, j.count, 0);
+	set_state(j, RUNNING);
+	for (int i = 0; i < j.count; i++)
+	{
+		if (stopped(j)) return CANCELLED;
+		String name = src_name(j, i);
+		set_current(j, name);
+		char[4096] origin;
+		if (!read_origin(j, name, &origin)) return FAILED;
+		String path = txt::view(&origin);
+		txt::set(&j.dst_dir, txt::dirname(path)); // exists_in_dst / unique_name / temp_path work in the target folder
+		if (!make_parents(&j.dst_dir)) { fail(j, "Cannot recreate the original folder of", name); return FAILED; }
+		if (!set_path(&j.sp, &j.sl, src_dir, name)) { *c_errno() = 0; fail(j, "Path too long", name); return FAILED; }
+		libc::Stat st;
+		if (c_lstat(zp(&j.sp), &st) != 0) { fail(j, "Cannot read", name); return FAILED; }
+		char[256] final;
+		txt::set(&final, txt::basename(path));
+		bool aside;
+		char[4096] old;
+		if (exists_in_dst(j, txt::view(&final)))
+		{
+			char[4096] target;
+			set_path(&target, &&(usz){}, txt::view(&j.dst_dir), txt::view(&final));
+			libc::Stat tst;
+			bool tdir = c_lstat(zp(&target), &tst) == 0 && (tst.st_mode & S_IFMT) == S_IFDIR;
+			Answer a;
+			if (!ask(j, txt::view(&final), tdir, &a)) return CANCELLED;
+			set_state(j, RUNNING);
+			switch (a)
+			{
+				case SKIP:
+					j.mutex.lock(); j.p.skipped++; j.p.files_done++; j.mutex.unlock();
+					continue;
+				case KEEP_BOTH:
+					if (!unique_name(j, txt::basename(path), (st.st_mode & S_IFMT) == S_IFDIR, false, &final)) { *c_errno() = 0; fail(j, "No free name for", name); return FAILED; }
+				case REPLACE:
+					if (!temp_path(j, i, "old", &old)) { *c_errno() = 0; fail(j, "Path too long", name); return FAILED; }
+					if (!rename_noreplace(zp(&target), zp(&old))) { fail(j, "Cannot replace", txt::view(&final)); return FAILED; }
+					aside = true;
+			}
+		}
+		char[4096] dst;
+		if (!set_path(&dst, &&(usz){}, txt::view(&j.dst_dir), txt::view(&final))) { *c_errno() = 0; fail(j, "Path too long", name); return FAILED; }
+		if (!rename_noreplace(zp(&j.sp), zp(&dst)))
+		{
+			CInt e = *c_errno();
+			if (aside) rename_noreplace(zp(&old), zp(&dst));
+			*c_errno() = e;
+			fail(j, e == EXDEV ? "Original folder is on another drive:" : "Cannot restore", name);
+			return FAILED;
+		}
+		if (aside) discard(j, zp(&old));
+		char[4096] info;
+		if (info_path(j, name, &info)) c_unlink(zp(&info));
+		add_done(j, 1, 0);
+	}
+	return DONE;
+}
 
 <* COUNT: totals only (files_total counts files, folders and links; bytes_total = sum of file sizes). *>
 fn State count_all(Job* j) @private

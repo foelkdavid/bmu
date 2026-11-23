@@ -169,6 +169,30 @@ fn void check_fileop() => @pool()
 	p = run(DELETE, "b", { "tree2", "one.txt" });
 	expect(p.state == DONE && p.files_done == 2 && !there("b/tree2") && !there("b/one.txt"), "fileop: delete");
 
+	// Restore: back to the original path (parent recreated), record removed; conflicts keep both.
+	sys::mkdirs(at("r/deep"));
+	put("r/deep/doc.txt", "doc");
+	p = run(TRASH, "r/deep", { "doc.txt" });
+	expect(p.state == DONE && !there("r/deep/doc.txt"), "fileop: trash before restore");
+	p = run(DELETE, "r", { "deep" });
+	p = run(RESTORE, "data/Trash/files", { "doc.txt" });
+	expect(p.state == DONE && get("r/deep/doc.txt") == "doc" && !there("data/Trash/files/doc.txt") && !there("data/Trash/info/doc.txt.trashinfo"), "fileop: restore recreates folder");
+	p = run(TRASH, "r/deep", { "doc.txt" });
+	put("r/deep/doc.txt", "newer");
+	p = run(RESTORE, "data/Trash/files", { "doc.txt" }, reply: KEEP_BOTH);
+	expect(p.state == DONE && get("r/deep/doc.txt") == "newer" && get("r/deep/doc (2).txt") == "doc", "fileop: restore keep both");
+	put("r/deep/x.txt", "x1");
+	p = run(TRASH, "r/deep", { "x.txt" });
+	put("r/deep/x.txt", "x2");
+	p = run(RESTORE, "data/Trash/files", { "x.txt" }, reply: REPLACE);
+	expect(p.state == DONE && get("r/deep/x.txt") == "x1" && no_temporaries("r/deep"), "fileop: restore replace");
+	p = run(RESTORE, "data/Trash/files", { "missing.txt" });
+	expect(p.state == FAILED, "fileop: restore without record fails");
+	put("r/sp ace%.txt", "s");
+	p = run(TRASH, "r", { "sp ace%.txt" });
+	p = run(RESTORE, "data/Trash/files", { "sp ace%.txt" });
+	expect(p.state == DONE && get("r/sp ace%.txt") == "s", "fileop: restore decodes percent-encoding");
+
 	expect(!job.start(COPY, "relative", { "x" }, "/tmp"), "fileop: refuse relative source");
 	expect(!job.start(COPY, "/tmp", { "a/b" }, "/tmp"), "fileop: refuse names with slash");
 	expect(!job.busy(), "fileop: idle after refusals");
