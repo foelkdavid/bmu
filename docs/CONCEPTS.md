@@ -71,8 +71,9 @@ for the use: 128 names, 256 short text, 1024 paths. Anything built per frame (`s
 | `bmu::ui` | `ui.c3` | font, colours, icons, widgets, input state |
 | `bmu::picker` | `picker.c3` | file/folder chooser (uses ui, txt, sys) |
 | `bmu::image` | `image.c3` | bounded CPU-only async image loader; UI thread owns texture upload |
+| `bmu::find` | `find.c3` | background recursive file-name search (no raylib) |
 | `bmu::fileop` | `fileop.c3` | background copy/move/trash/delete with progress and rollback (no raylib) |
 | `bmu::txt` | `txt.c3` | char buffer + string helpers (no raylib) |
 | `bmu::sys` | `sys.c3` | POSIX file/process helpers (no raylib) |
 
-`txt`, `sys` and `fileop` don't touch raylib: CLI tools and headless code can use them alone.
+`txt`, `sys`, `fileop` and `find` don't touch raylib: CLI tools and headless code can use them alone.

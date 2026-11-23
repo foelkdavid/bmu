@@ -404,6 +404,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
+| recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
 | image loader | 4095-byte paths; 32 MiB compressed file; 32,000,000 source pixels; 16384 px source edge; 1600 px preview edge; one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
@@ -464,6 +465,23 @@ How it stays safe (COPY / MOVE are all-or-nothing):
   only the home trash, no per-volume `.Trash-UID` folders (RESTORE refuses relative recorded paths). Trash/delete/restore cancel stops between items (no undo); restoring across filesystems is refused.
 - Hard links are copied as separate files; owners are not preserved. Filesystems without `RENAME_NOREPLACE` use
   check-then-rename (a tiny race).
+
+## Recursive name search (`bmu::find`)
+
+Search a folder tree for entry names on a worker thread (Linux, no raylib). Zero-initialize `find::Finder` at a
+stable address; methods are UI-thread-only.
+
+| call | contract |
+|---|---|
+| `finder.start(String root, String query, bool hidden = false) -> bool` | Breadth-first walk of absolute `root` for names containing `query` (case-insensitive). `hidden` includes dot-entries. False when already started (call `close()` first), empty query, or no memory. |
+| `finder.results() -> int` | Hits so far (one lock). Hits below it never change until `close()`: read them without locking. |
+| `finder.rel(i)`, `.name(i)`, `.folder(i)`, `.is_dir(i)` | Relative path, entry name, relative folder (`""` = root) and folder flag of hit `i`. |
+| `finder.searching() -> bool` | The walk is still running. |
+| `finder.limited() -> bool` | It stopped at a limit (see §16) or skipped too-deep / too-long paths. |
+| `finder.close()` | Cancel (stops within one folder entry), join, free the results. Call before a new `start` and on exit. |
+
+Never follows symlinks; stays on the root's filesystem like `find -xdev` (one `fstat` per folder, none per file;
+`DT_UNKNOWN` entries cost one `lstat`). Debounce typing (e.g. 150 ms) and restart with `close()` + `start()`.
 
 ## 17. Low level: without the app layer
 

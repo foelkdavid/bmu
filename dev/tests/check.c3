@@ -28,6 +28,7 @@ fn void main()
 	check_sys();
 	check_edit();
 	check_fileop();
+	check_find();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 }

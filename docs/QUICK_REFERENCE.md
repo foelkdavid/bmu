@@ -1,7 +1,7 @@
 # bmu quick reference (one page)
 
 The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
-Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`, `bmu::fileop`; raylib is `rl::`.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`, `bmu::fileop`, `bmu::find`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
@@ -119,6 +119,8 @@ fn void main(String[] args)
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
 | `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
+| **find** (`find::`) | |
+| `Finder.start(root, query, hidden)`, `.results()`, `.rel(i)` `.name(i)` `.folder(i)` `.is_dir(i)`, `.searching()`, `.limited()`, `.close()` | background recursive name search, breadth-first, same filesystem, append-only hits |
 | **txt** (`txt::`) — `char[]` buffers | |
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |
