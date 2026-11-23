@@ -316,7 +316,7 @@ raylib key codes are US key **positions**; on QWERTZ, `rl::KeyboardKey.Z` is the
 | | |
 |---|---|
 | `fn bool letter(char c)` | Was the key that types letter `c` ('a'..'z', lowercase) pressed this frame (layout-aware). |
-| `fn bool ctrl_down()`, `fn bool shift_down()` | Either side. On frames with a mouse press/release the real X11 modifier state is also asked once, so Ctrl/Shift-clicks work even when the modifier went down while another window had focus. |
+| `fn bool ctrl_down()`, `fn bool shift_down()` | Either side. On frames with a mouse press/release they also use the modifier state the compositor sent with the click, so Ctrl/Shift-clicks work even when the modifier went down while another window had focus. |
 | `fn bool repeat(rl::RLKeyboardKey k)` | Pressed or auto-repeating (arrow keys in lists). |
 | `fn void map_layout()` | Builds the letter map from GLFW (`open` calls it). |
 

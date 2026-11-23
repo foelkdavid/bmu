@@ -277,40 +277,48 @@ fn void set_scale(float s)
 // Reasonable default: 1.0 at 1440p and below, 1.5 at 4K.
 fn float auto_scale()
 {
-	int mh = rl::get_monitor_height(rl::get_current_monitor());
+	int mh = rl::get_monitor_height(0); // primary output (Wayland gives windows no position)
 	if (mh <= 0) return 1;
 	return math::clamp(math::round((float)mh / 1440 * 4) / 4, 1.0f, 2.5f);
 }
 
-// Modifier state straight from X11 on click frames. raylib only learns Ctrl/Shift from key events sent to
-// its window, so a modifier pressed while another window had focus (focus-follows-mouse, a click that
-// focuses the window) would be missed; on press/release frames the real state is asked once.
+// Modifier state that came with mouse clicks. raylib only learns Ctrl/Shift from key events sent to its
+// window, so a modifier pressed while another window had focus (focus-follows-mouse, a click that focuses
+// the window) would be missed. GLFW passes the compositor's modifier state with every mouse button event,
+// but raylib drops it: bmu chains its own button callback in front of raylib's (installed once).
+alias MouseButtonFn = fn void(void* window, CInt button, CInt action, CInt mods);
 extern fn void* glfw_current_context() @cname("glfwGetCurrentContext") @private;
-extern fn void* glfw_x11_display() @cname("glfwGetX11Display") @private;
-extern fn ulong glfw_x11_window(void* window) @cname("glfwGetX11Window") @private;
-extern fn CInt x_query_pointer(void* display, ulong window, ulong* root, ulong* child, CInt* root_x, CInt* root_y, CInt* win_x, CInt* win_y, CUInt* mask) @cname("XQueryPointer") @private;
+extern fn MouseButtonFn glfw_set_mouse_button_callback(void* window, MouseButtonFn cb) @cname("glfwSetMouseButtonCallback") @private;
+MouseButtonFn raylib_button_cb @private;
+bool button_hooked @private;
+bool pending_ctrl @private;
+bool pending_shift @private;
 bool click_ctrl;
 bool click_shift;
 
+fn void on_mouse_button(void* window, CInt button, CInt action, CInt mods) @private
+{
+	pending_shift = pending_shift || (mods & 1) != 0; // GLFW_MOD_SHIFT
+	pending_ctrl = pending_ctrl || (mods & 2) != 0;   // GLFW_MOD_CONTROL
+	if (raylib_button_cb) raylib_button_cb(window, button, action, mods);
+}
+
+<* Events are polled at the end of a frame: hand their modifiers to the next frame, then reset. *>
 fn void sync_click_modifiers() @private
 {
-	click_ctrl = false;
-	click_shift = false;
-	bool click;
-	for (int b = 0; b < 3; b++)
+	if (!button_hooked)
 	{
-		if (rl::is_mouse_button_pressed((rl::RLMouseButton)b) || rl::is_mouse_button_released((rl::RLMouseButton)b)) click = true;
+		void* window = glfw_current_context();
+		if (window)
+		{
+			raylib_button_cb = glfw_set_mouse_button_callback(window, &on_mouse_button);
+			button_hooked = true;
+		}
 	}
-	if (!click) return;
-	void* window = glfw_current_context();
-	void* display = glfw_x11_display();
-	if (!window || !display) return;
-	ulong root, child;
-	CInt rx, ry, wx, wy;
-	CUInt mask;
-	if (!x_query_pointer(display, glfw_x11_window(window), &root, &child, &rx, &ry, &wx, &wy, &mask)) return;
-	click_shift = (mask & 1) != 0; // ShiftMask
-	click_ctrl = (mask & 4) != 0;  // ControlMask
+	click_ctrl = pending_ctrl;
+	click_shift = pending_shift;
+	pending_ctrl = false;
+	pending_shift = false;
 }
 
 fn void begin_frame()

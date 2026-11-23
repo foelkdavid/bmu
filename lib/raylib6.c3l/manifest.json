@@ -4,7 +4,7 @@
     "linux-x64": {
       "link-args": [],
       "dependencies": [],
-      "linked-libraries": ["raylib", "X11", "Xrandr", "Xinerama", "Xi", "Xcursor", "m"]
+      "linked-libraries": ["raylib", "m"]
     }
   }
 }

@@ -58,7 +58,7 @@ fn void fit_window(bool resize)
 {
 	rl::set_window_min_size((int)((float)min_base_w * scale), (int)((float)min_base_h * scale));
 	if (!resize) return;
-	int m = rl::get_current_monitor();
+	int m = 0; // Wayland: a window can't learn its output before it is shown; size against the primary one
 	int w = math::min((int)((float)base_w * scale), (int)((float)rl::get_monitor_width(m) * 0.9f));
 	int h = math::min((int)((float)base_h * scale), (int)((float)rl::get_monitor_height(m) * 0.9f));
 	if (w > 0 && h > 0) rl::set_window_size(w, h);

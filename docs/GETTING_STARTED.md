@@ -3,8 +3,9 @@
 ## What you need
 
 - C3 compiler 0.8.x (`c3c --version`).
-- Linux x86_64. raylib 6 ships prebuilt and statically linked in `lib/raylib6.c3l` (X11 build: on Wayland it runs
-  under XWayland). Linked system libs: X11, Xrandr, Xinerama, Xi, Xcursor, libm.
+- Linux x86_64 on a **Wayland** compositor (no X11 / XWayland support). raylib 6.0 ships prebuilt and statically
+  linked in `lib/raylib6.c3l` (GLFW Wayland backend only; rebuild with `dev/tools/build-raylib.sh`). Linked: libm;
+  GLFW loads libwayland-client/-cursor/-egl, libxkbcommon and EGL/GL at runtime (Mesa or your GPU driver).
 - Nothing else: no GTK, no portals, no zenity. The font is embedded.
 
 ## Try it
