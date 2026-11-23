@@ -74,6 +74,36 @@ fn void check_elevated() => @pool()
 	p = erun(COPY, a, { "one.txt" }, b);
 	expect(p.state == FAILED && txt::view(&p.error).contains("not in the sudoers file"), "elevated: sudo refusal reported");
 
+	// Programs as root (SudoRun), with fake sudo commands.
+	fileop::SudoRun run;
+	char[8] pass;
+	txt::set(&pass, "pw");
+	fileop::elevate_cmd = {};
+	String marker = txt::join(root, "ran").copy(tmem);
+	String[3] ok_cmd = { "sh", "-c", string::tformat("touch '%s'; head -c 1000000 /dev/zero >&2", marker) };
+	expect(run.start(&ok_cmd, &pass, false), "sudo run: start");
+	fileop::SudoState st = RUNNING;
+	for (int i = 0; i < 4000 && st == RUNNING; i++) { st = run.poll(); sys::c_usleep(1000); }
+	expect(st == DONE && sys::exists(marker), "sudo run: done, 1 MB of stderr drained");
+	fileop::elevate_cmd = { "sh", "-c", "read p; echo 'Sorry, try again.' >&2; echo 'sudo: 1 incorrect password attempt' >&2; exit 1", "fake-sudo" };
+	String[1] noop = { "true" };
+	expect(run.start(&noop, &pass, false), "sudo run: start (wrong password)");
+	st = RUNNING;
+	for (int i = 0; i < 4000 && st == RUNNING; i++) { st = run.poll(); sys::c_usleep(1000); }
+	expect(st == FAILED && txt::view(&run.error) == "Wrong password", "sudo run: wrong password");
+	fileop::elevate_cmd = { "sh", "-c", "echo 'sudo: david is not in the sudoers file.' >&2; exit 1", "fake-sudo" };
+	expect(run.start(&noop, &pass, false), "sudo run: start (refused)");
+	st = RUNNING;
+	for (int i = 0; i < 4000 && st == RUNNING; i++) { st = run.poll(); sys::c_usleep(1000); }
+	expect(st == FAILED && txt::view(&run.error).contains("not in the sudoers file"), "sudo run: refusal reported");
+	fileop::elevate_cmd = {};
+	String leader = txt::join(root, "leader").copy(tmem);
+	String[3] sid_cmd = { "sh", "-c", string::tformat("test \"$(ps -o sid= -p $$ | tr -d ' ')\" = \"$$\" && touch '%s'", leader) };
+	expect(run.start(&sid_cmd, &pass, false), "sudo run: start (session)");
+	st = RUNNING;
+	for (int i = 0; i < 4000 && st == RUNNING; i++) { st = run.poll(); sys::c_usleep(1000); }
+	expect(st == DONE && sys::exists(leader), "sudo run: own session (outlives the app)");
+
 	fileop::Job cleanup;
 	if (cleanup.start(DELETE, "/tmp", { txt::basename(root) })) { while (!cleanup.finished(&p)) sys::c_usleep(500); }
 	expect(!sys::exists(root), "elevated: cleanup");

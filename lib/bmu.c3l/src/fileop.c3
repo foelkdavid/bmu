@@ -1,5 +1,5 @@
 module bmu::fileop;
-import std::thread, std::core::string, libc;
+import std::thread, std::core::string, std::math, libc;
 import bmu::txt, bmu::sys;
 
 // bmu::fileop - background copy / move / trash / delete for file managers (Linux x86_64, no raylib).
@@ -1688,3 +1688,137 @@ fn int helper_main(String[] args) => @pool()
 		last = p;
 	}
 }
+
+// ------------------------------------------------------------------------------------- programs as root
+
+<*
+ A program started as root through sudo (e.g. an editor for a root-owned file). start() writes the password once
+ (wiped right after); a thread drains the program's stderr (so it never blocks on a full pipe) and reaps it, so
+ poll() is a lock + copy. Keep it at a stable address while it runs.
+*>
+struct SudoRun
+{
+	thread::Mutex mutex;
+	thread::Thread drain;
+	bool started;
+	bool exited;
+	CInt status;
+	CInt pid;
+	CInt errfd;
+	bool rejected;       // sudo refused (wrong password, not allowed)
+	char[512] error;     // sudo's message when rejected
+}
+
+enum SudoState { RUNNING, DONE, FAILED }
+
+fn int sudo_drain(void* arg) @private
+{
+	SudoRun* r = arg;
+	char[1024] head;
+	usz len;
+	char[4096] sink;
+	while (true)
+	{
+		sz n = c_read(r.errfd, &sink, sink.len);
+		if (n < 0 && *c_errno() == EINTR) continue;
+		if (n <= 0) break;
+		usz take = math::min((usz)n, head.len - 1 - len);
+		libc::memcpy(&head[len], &sink, take);
+		len += take;
+	}
+	sys::c_close(r.errfd);
+	CInt status;
+	while (sys::c_waitpid(r.pid, &status, 0) < 0 && *c_errno() == EINTR) {}
+	head[len] = 0;
+	String e = ((String)head[:len]).trim();
+	r.mutex.lock();
+	r.exited = true;
+	r.status = status;
+	// sudo's own refusals ("Sorry, try again", "... not in the sudoers file", "a password is required").
+	if (status != 0 && (e.contains("incorrect password") || e.contains("Sorry, try again") || e.starts_with("sudo: ")))
+	{
+		r.rejected = true;
+		if (e.contains("incorrect password") || e.contains("Sorry, try again")) { txt::set(&r.error, "Wrong password"); }
+		else
+		{
+			usz nl = e.len;
+			foreach (usz i, c : e) if (c == '\n') { nl = i; break; }
+			txt::set(&r.error, e[6:nl - 6]);
+		}
+	}
+	r.mutex.unlock();
+	return 0;
+}
+
+<*
+ Run `argv` as root via `sudo -k -S` (fileop::elevate_cmd; no cached credentials). With `keep_display`, the
+ Wayland/X11 display variables are passed through `env` so GUI programs and terminals can open a window (sudo
+ resets the environment). The password is written once and wiped from this struct's copy.
+*>
+fn bool SudoRun.start(&self, String[] argv, char[] password, bool keep_display = true) => @pool()
+{
+	if (self.started || !argv.len) return false;
+	ZString[] args = mem::talloc_array(ZString, elevate_cmd.len + argv.len + 6);
+	usz a;
+	foreach (c : elevate_cmd) args[a++] = c.zstr_tcopy();
+	if (keep_display)
+	{
+		args[a++] = "env";
+		foreach (name : (String[]){ "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "DISPLAY" })
+		{
+			String v = sys::env(name);
+			if (v.len) args[a++] = string::tformat("%s=%s", name, v).zstr_tcopy();
+		}
+	}
+	foreach (x : argv) args[a++] = x.zstr_tcopy();
+	args[a] = null;
+	CInt[2] in;
+	CInt[2] err;
+	if (c_pipe2(&in, 0x80000) != 0) return false;
+	if (c_pipe2(&err, 0x80000) != 0) { sys::c_close(in[0]); sys::c_close(in[1]); return false; }
+	CInt pid = sys::c_fork();
+	if (pid == 0)
+	{
+		sys::c_dup2(in[0], 0);
+		sys::c_dup2(err[1], 2);
+		sys::c_setsid(); // not tied to the app: quitting it leaves the program running
+		sys::c_execvpe(args[0], &args[0], sys::environ);
+		sys::c_exit(127);
+	}
+	sys::c_close(in[0]);
+	sys::c_close(err[1]);
+	if (pid < 0) { sys::c_close(in[1]); sys::c_close(err[0]); return false; }
+	char[512] line;
+	usz n = txt::view(password).len;
+	if (n >= line.len) n = 0;
+	libc::memcpy(&line, password.ptr, n);
+	line[n] = '\n';
+	write_all(in[1], &line, n + 1);
+	explicit_bzero(&line, line.len);
+	sys::c_close(in[1]); // EOF: a rejected password ends sudo instead of waiting for another try
+	*self = { .pid = pid, .errfd = err[0] };
+	if (catch self.mutex.init()) { sys::c_close(err[0]); return false; }
+	if (catch self.drain.create(&sudo_drain, self)) { self.mutex.destroy(); sys::c_close(err[0]); return false; }
+	self.started = true;
+	return true;
+}
+
+<* RUNNING while the program runs (or sudo waits), DONE when it ended normally, FAILED when sudo refused or it
+   failed; `error` then says why. After DONE / FAILED the run is free for start() again. *>
+fn SudoState SudoRun.poll(&self)
+{
+	if (!self.started) return DONE;
+	self.mutex.lock();
+	bool exited = self.exited;
+	bool rejected = self.rejected;
+	CInt status = self.status;
+	self.mutex.unlock();
+	if (!exited) return RUNNING;
+	self.drain.join()!!;
+	self.mutex.destroy();
+	self.started = false;
+	if (rejected) return FAILED;
+	if (status != 0 && !self.error[0]) txt::set(&self.error, "The program failed");
+	return status == 0 ? DONE : FAILED;
+}
+
