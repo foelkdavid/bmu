@@ -331,6 +331,9 @@ fn void begin_frame()
 	if (popup_open) { top = POPUP_LAYER; } else if (menu_id >= 0) { top = MENU_LAYER; }
 }
 
+rl::RLMouseCursor shown_cursor @private;
+bool cursor_known @private;
+
 fn void end_frame()
 {
 	if (menu_id >= 0 && menu_seen != menu_id)           // the app did not draw it this frame
@@ -340,7 +343,9 @@ fn void end_frame()
 	menu_seen = -1;
 	draw_popup();
 	draw_toast();
-	rl::set_mouse_cursor(cursor);
+	// Only on change: raylib creates a new GLFW cursor on every call (never freed) and the compositor gets a
+	// cursor update each time; per frame that leaked memory and sent 60 updates/s while hovering an input.
+	if (!cursor_known || cursor != shown_cursor) { rl::set_mouse_cursor(cursor); shown_cursor = cursor; cursor_known = true; }
 }
 
 fn bool live() => layer == top && !consumed;

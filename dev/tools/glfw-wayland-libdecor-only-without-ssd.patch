@@ -1,0 +1,16 @@
+# GLFW 3.4 (raylib 6.0) Wayland initializes libdecor whenever it is installed; its GTK plugin costs ~50 ms at startup.
+# Use libdecor only when the compositor offers no server-side decorations (e.g. GNOME). Applied by build-raylib.sh.
+--- a/src/external/glfw/src/wl_init.c	2026-11-23 13:02:30.275831416 +0100
++++ b/src/external/glfw/src/wl_init.c	2026-11-23 13:02:30.288942956 +0100
+@@ -838,7 +838,10 @@
+     // Sync so we got all initial output events
+     wl_display_roundtrip(_glfw.wl.display);
+ 
+-    if (_glfw.wl.libdecor.handle)
++    // bmu patch: libdecor_new loads a decoration plugin (GTK: ~50 ms at startup). Only use it when the
++    // compositor cannot draw decorations itself; with xdg-decoration (River, Sway, Hyprland, KDE...) GLFW
++    // takes the same path as on systems without libdecor installed.
++    if (_glfw.wl.libdecor.handle && !_glfw.wl.decorationManager)
+     {
+         _glfw.wl.libdecor.context = libdecor_new(_glfw.wl.display, &libdecorInterface);
+         if (_glfw.wl.libdecor.context)
