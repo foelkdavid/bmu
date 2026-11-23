@@ -342,7 +342,8 @@ Ctrl +/−/0 are taken by `frame_begin` for zoom.
 ## 13. File picker (picker::)
 
 Module `bmu::picker`. A modal file/folder chooser drawn with bmu itself: path bar (type a path or `~/...`,
-Enter), places sidebar (Home, Downloads, your places, /mnt, /run/media, /), list (dirs first, sorted), hidden-files
+Enter), places sidebar (Home, Downloads, File system, the shared `bmu::places`, your places, /mnt, /run/media;
+built when the picker opens, missing folders left out, scrolls when long), list (dirs first, sorted), hidden-files
 and all-files toggles. Double-click/Enter opens, Backspace goes up, ↑/↓ select, Esc cancels.
 
 ```c3
@@ -365,7 +366,7 @@ if (picker::take(&why, &path)) { if (why == PICK_ICON) txt::set(&icon, path); }
 | `fn bool take(int* why, String* path)` | True **once** after a confirm. `path` points into picker storage: copy it (`txt::set`) before the next pick. |
 | `fn void cancel()` | Close without a result. |
 | `char[1024] last_dir` | Folder of the last confirmed pick (`txt::view(&picker::last_dir)`); save it to start there next time. |
-| `fn void add_place(String icon, String name, String path)` / `fn void clear_places()` | Your sidebar entries (max 16, hidden when the folder is missing). |
+| `fn void add_place(String icon, String name, String path)` / `fn void clear_places()` | Your sidebar entries (max 16, hidden when the folder is missing), after the shared places. Call before `start()`. |
 | `fn void set_ext_icon(String ext, String icon)` | Show files ending in `ext` with `icon` in AQUA (max 16). |
 | `const int ID_PATH = 9001` | Input id used by the path bar: don't reuse ids ≥ 9000. |
 
@@ -409,6 +410,24 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | `fn bool write_file(String path, String data)` | Create/replace. |
 | `c_fork c_setsid c_execvpe c_dup2 c_open c_close c_write c_chdir c_waitpid c_kill c_access c_mkdir c_exit c_opendir c_readdir c_closedir c_realpath c_time c_usleep c_rename environ` | Raw libc. Constants `O_RDONLY O_WRONLY O_CREAT O_TRUNC O_APPEND WNOHANG SIGTERM SIGKILL X_OK DT_*`. See COOKBOOK "Run a program". |
 
+## Shared places (places::)
+
+Module `bmu::places`. Saved locations shared by every bmu app: `$XDG_CONFIG_HOME/bmu/places` (fallback
+`~/.config/bmu/places`), lines `downloads=0|1` and `place=/absolute/path`. A file manager edits the list; the
+picker reloads it on every `start()`, so its sidebar shows the same places. Each change saves at once (atomic
+rename); nothing touches the disk per frame.
+
+| | |
+|---|---|
+| `fn bool load()` | Read the file (≤ ~131 KB). False when missing/unreadable: list empty, `downloads` true. |
+| `fn bool save()` | Write it (creates the folder). |
+| `int count`, `fn String path(int i)` | The list, in the user's order. |
+| `fn bool add(String p)` | Append an absolute path (no newlines, < 4096 bytes) and save; true when present afterwards (duplicates count). False when full (32) or invalid. |
+| `fn void remove(int i)` | Remove and save. |
+| `bool downloads`, `fn void set_downloads(bool on)` | Show the pinned Downloads entry (default true); the setter saves. |
+| `fn String downloads_path()` | `~/Downloads` (temp). |
+| `fn String file_path()` | The file's path (temp). |
+
 ## 16. Limits
 
 | what | limit |
@@ -418,7 +437,8 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | context menu | 32 rows (items + separators), 4 KB of label text |
 | tooltip / toast | 255 / 511 bytes |
 | Wayland app_id | 255 bytes (longer is cut) |
-| picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
+| picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths (longer shared places are left out of its sidebar) |
+| shared places | 32 places, 4095-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |

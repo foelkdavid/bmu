@@ -33,6 +33,7 @@ fn int main(String[] args)
 	check_elevated();
 	check_archive();
 	check_app_id();
+	check_places();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 	return 0;

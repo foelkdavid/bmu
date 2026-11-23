@@ -7,7 +7,7 @@ last recipe runs a small app that uses most of them: copy freely.
 module cookbook;
 import std::io, std::math, std::core::string, std::core::dstring;
 import raylib6::rl;
-import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::image, bmu::fileop;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::places, bmu::image, bmu::fileop;
 ```
 
 ## Labelled form fields with a Browse button
@@ -200,6 +200,24 @@ fn void setup_picker() => @pool()
 	picker::add_place(ui::I_IMAGE, "Pictures", txt::join(sys::home(), "Pictures"));
 	picker::set_ext_icon(".png", ui::I_IMAGE);
 	picker::set_ext_icon(".jpg", ui::I_IMAGE);
+}
+```
+
+## Saved locations shared with the picker
+
+A file manager's sidebar and every app's picker show the same list: keep it in `bmu::places`, not in your own
+settings. Load once at startup; `add`/`remove`/`set_downloads` save at once.
+
+```c3
+fn void sidebar_places(float x, float y) => @pool()
+{
+	if (places::downloads) ui::text(string::tformat("%s Downloads", ui::I_DOWNLOAD), x, y);
+	for (int i = 0; i < places::count; i++) ui::text(txt::basename(places::path(i)), x, y + 30 + (float)i * 30);
+}
+
+fn void save_current_folder(String dir)
+{
+	if (!places::add(dir)) ui::toast("Cannot save the location (32 at most)", ui::RED);
 }
 ```
 

@@ -1,7 +1,7 @@
 module bmu::picker;
 import std::math, std::core::string;
 import raylib6::rl;
-import bmu::txt, bmu::sys, bmu::ui;
+import bmu::txt, bmu::sys, bmu::ui, bmu::places;
 
 // bmu::picker - built-in modal file / folder chooser. No portals, no zenity, no GTK.
 //   picker::start(MY_PURPOSE, FILE, "Open a file", start_dir, &filters);   // open it
@@ -40,7 +40,7 @@ double last_click;
 int last_click_idx = -1;
 char[1024] last_dir;  // folder of the last confirmed pick (persist it if you like)
 
-// Sidebar places added by the app (shown between Downloads and /mnt).
+// Sidebar places added by the app (shown after the shared bmu::places, before /mnt).
 struct Place
 {
 	char[64] name;
@@ -59,6 +59,51 @@ struct ExtIcon
 }
 ExtIcon[16] ext_icons;
 int ext_icon_count;
+
+// Sidebar rows, built by start() (existence checked once there, never per frame).
+struct Row
+{
+	char[64] name;
+	char[1024] path;
+	String icon;
+	bool divider;     // a line above this row
+}
+const MAX_ROWS = 4 + places::MAX + MAX_PLACES + 2;
+Row[MAX_ROWS] rows;
+int row_count;
+float side_scroll;
+
+fn void add_row(String icon, String name, String path, bool divider = false)
+{
+	if (row_count >= MAX_ROWS || path.len >= 1024 || !sys::is_dir(path)) return;
+	Row* r = &rows[row_count++];
+	txt::set(&r.name, name);
+	txt::set(&r.path, path);
+	r.icon = icon;
+	r.divider = divider;
+}
+
+<* Home, Downloads (unless hidden in bmu::places), File system, the shared places, the app's places, /mnt,
+   /run/media: the same order a bmu file manager shows. *>
+fn void build_rows() => @pool()
+{
+	row_count = 0;
+	side_scroll = 0;
+	places::load();
+	add_row(ui::I_HOME, "Home", sys::home());
+	if (places::downloads) add_row(ui::I_DOWNLOAD, "Downloads", places::downloads_path());
+	add_row(ui::I_HDD, "File system", "/");
+	int first = row_count;
+	for (int i = 0; i < places::count; i++)
+	{
+		String p = places::path(i);
+		add_row(ui::I_FOLDER, p == "/" ? "/" : txt::basename(p), p, row_count == first);
+	}
+	for (int i = 0; i < place_count; i++) add_row(place_list[i].icon, txt::view(&place_list[i].name), txt::view(&place_list[i].path), row_count == first);
+	int mounts = row_count;
+	add_row(ui::I_HDD, "/mnt", "/mnt", true);
+	add_row(ui::I_HDD, "/run/media", "/run/media", row_count == mounts);
+}
 
 <* Add a sidebar place. Folders that do not exist are hidden when drawing. *>
 fn void add_place(String icon, String name, String path)
@@ -108,6 +153,7 @@ fn void start(int why, Mode m, String title_text, String start_dir, String[] fil
 	ext_count = 0;
 	foreach (e : filter) if (ext_count < exts.len) exts[ext_count++] = e;
 	show_all = false;
+	build_rows();
 	String d = start_dir;
 	if (d.starts_with("~")) d = string::tformat("%s%s", sys::home(), d[1..]);
 	while (d.len > 1 && !sys::is_dir(d)) d = txt::dirname(d);
@@ -230,15 +276,20 @@ fn void draw()
 	float list_h = box.y + box.height - 70 - y;
 	Rect places = { x, y, side, list_h };
 	ui::panel(places, ui::BG_HARD, 6);
-	float py = y + 10;
-	ui::text("PLACES", x + 14, py, 12, ui::GRAY);
-	py += 24;
-	py = place(x, py, side, ui::I_HOME, "Home", sys::home());
-	py = place(x, py, side, ui::I_FOLDER, "Downloads", txt::join(sys::home(), "Downloads"));
-	for (int i = 0; i < place_count; i++) py = place(x, py, side, place_list[i].icon, txt::view(&place_list[i].name), txt::view(&place_list[i].path));
-	py = place(x, py, side, ui::I_HDD, "/mnt", "/mnt");
-	py = place(x, py, side, ui::I_HDD, "/run/media", "/run/media");
-	py = place(x, py, side, ui::I_HDD, "File system", "/");
+	ui::text("PLACES", x + 14, y + 10, 12, ui::GRAY);
+	Rect side_area = { x, y + 30, side, list_h - 36 };
+	float side_h = 0;
+	for (int i = 0; i < row_count; i++) side_h += rows[i].divider ? 43 : 32;
+	side_scroll = ui::scroll_wheel(side_area, side_scroll, side_h);
+	ui::begin_clip(side_area);
+	float py = side_area.y - side_scroll;
+	for (int i = 0; i < row_count; i++)
+	{
+		if (rows[i].divider) { ui::hline(x + 12, py + 4, side - 24); py += 11; }
+		py = place(x, py, side, rows[i].icon, txt::view(&rows[i].name), txt::view(&rows[i].path));
+	}
+	ui::end_clip();
+	ui::scrollbar(side_area, side_scroll, side_h);
 
 	// entry list
 	Rect list = { x + side + 12, y, box.width - side - 52, list_h };
@@ -315,7 +366,6 @@ fn void draw()
 
 fn float place(float x, float y, float w, String icon, String name, String path)
 {
-	if (!sys::is_dir(path)) return y;
 	Rect r = { x + 6, y, w - 12, 30 };
 	bool here = txt::view(&dir) == path;
 	if (here) ui::panel(r, ui::BG1, 4);
