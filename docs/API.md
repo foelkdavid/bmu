@@ -75,6 +75,7 @@ fn void main(String[] args)
 | `Color clear_color = BG` | Background colour. |
 | `fn void fit_window(bool resize)` | Re-apply the min size for the current scale; `resize` also resets the window size. |
 | `fn void close()` | Unload the font, close the window. |
+| `fn bool clipboard_set_data(String[] mimes, char[][] datas)` | Clipboard in other formats (≤4), e.g. `image/png` bytes + `text/uri-list` (`file:///path\r\n`) so pasting gives the image or the file. Bytes are copied; pastes are served on a short-lived thread while the app runs. From a user action, UI thread. Text: `rl::set_clipboard_text` (replaces it). bmu's GLFW patch `glfw-wayland-clipboard-data.patch`. |
 | `fn String backend()`, `glfw_version()`, `gpu()`, `gl_version()` | Runtime facts for an About page or bug report: windowing backend ("Wayland"), GLFW version string, GPU/driver (GL_RENDERER), OpenGL version. After `open()`, UI thread; cheap, but call on demand, not per frame. |
 
 Gotchas

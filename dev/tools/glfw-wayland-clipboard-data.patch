@@ -1,0 +1,140 @@
+# GLFW 3.4 (raylib 6.0) Wayland can only put text on the clipboard. Add bmuSetClipboardData(): any MIME types
+# (e.g. image/png + text/uri-list); pastes are written on a short-lived thread (SIGPIPE blocked). Applied by build-raylib.sh.
+--- a/src/external/glfw/src/wl_window.c	2026-11-23 14:04:44.304007648 +0100
++++ b/src/external/glfw/src/wl_window.c	2026-11-23 14:04:56.725215725 +0100
+@@ -41,6 +41,8 @@
+ #include <sys/mman.h>
+ #include <sys/timerfd.h>
+ #include <poll.h>
++#include <pthread.h>
++#include <signal.h>
+ #include <linux/input-event-codes.h>
+ 
+ #include "wayland-client-protocol.h"
+@@ -3082,11 +3084,74 @@
+     }
+ }
+ 
++// bmu patch: clipboard data in other formats (e.g. image/png), offered next to or instead of text.
++#define BMU_CLIP_MAX 4
++static char* bmuClipMime[BMU_CLIP_MAX];
++static unsigned char* bmuClipData[BMU_CLIP_MAX];
++static size_t bmuClipSize[BMU_CLIP_MAX];
++static int bmuClipCount;
++
++typedef struct { int fd; unsigned char* data; size_t size; } BmuClipWrite;
++
++// Large payloads are written on a short-lived thread with its own copy, so a slow reader never blocks the app.
++static void* bmuClipWriter(void* arg)
++{
++    BmuClipWrite* w = arg;
++    // A reader that closes early must not kill the app with SIGPIPE: block it for this thread (write -> EPIPE).
++    sigset_t pipe_set;
++    sigemptyset(&pipe_set);
++    sigaddset(&pipe_set, SIGPIPE);
++    pthread_sigmask(SIG_BLOCK, &pipe_set, NULL);
++    size_t done = 0;
++    while (done < w->size)
++    {
++        const ssize_t n = write(w->fd, w->data + done, w->size - done);
++        if (n == -1 && errno == EINTR) continue;
++        if (n <= 0) break;
++        done += (size_t) n;
++    }
++    close(w->fd);
++    _glfw_free(w->data);
++    _glfw_free(w);
++    return NULL;
++}
++
++static void bmuClipClear(void)
++{
++    for (int i = 0; i < bmuClipCount; i++)
++    {
++        _glfw_free(bmuClipMime[i]);
++        _glfw_free(bmuClipData[i]);
++    }
++    bmuClipCount = 0;
++}
++
+ static void dataSourceHandleSend(void* userData,
+                                  struct wl_data_source* source,
+                                  const char* mimeType,
+                                  int fd)
+ {
++    if (_glfw.wl.selectionSource == source)
++    {
++        for (int i = 0; i < bmuClipCount; i++)
++        {
++            if (strcmp(mimeType, bmuClipMime[i]) != 0) continue;
++            BmuClipWrite* w = _glfw_calloc(1, sizeof(BmuClipWrite));
++            unsigned char* copy = _glfw_calloc(1, bmuClipSize[i] ? bmuClipSize[i] : 1);
++            if (!w || !copy) { _glfw_free(w); _glfw_free(copy); close(fd); return; }
++            memcpy(copy, bmuClipData[i], bmuClipSize[i]);
++            *w = (BmuClipWrite) { fd, copy, bmuClipSize[i] };
++            pthread_t thread;
++            pthread_attr_t attr;
++            pthread_attr_init(&attr);
++            pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
++            if (pthread_create(&thread, &attr, bmuClipWriter, w) != 0) bmuClipWriter(w);
++            pthread_attr_destroy(&attr);
++            return;
++        }
++        if (!_glfw.wl.clipboardString) { close(fd); return; }
++    }
++
+     // Ignore it if this is an outdated or invalid request
+     if (_glfw.wl.selectionSource != source ||
+         strcmp(mimeType, "text/plain;charset=utf-8") != 0)
+@@ -3139,6 +3204,7 @@
+ 
+ void _glfwSetClipboardStringWayland(const char* string)
+ {
++    bmuClipClear();
+     if (_glfw.wl.selectionSource)
+     {
+         wl_data_source_destroy(_glfw.wl.selectionSource);
+@@ -3172,6 +3238,43 @@
+                                  _glfw.wl.serial);
+ }
+ 
++// bmu patch: put `count` formats (MIME type + bytes) on the clipboard; they are copied. Returns 1 on success.
++int bmuSetClipboardData(int count, const char* const* mimes, const void* const* datas, const size_t* sizes)
++{
++    if (count <= 0 || count > BMU_CLIP_MAX || !_glfw.wl.dataDeviceManager || !_glfw.wl.dataDevice)
++        return 0;
++    if (_glfw.wl.selectionSource)
++    {
++        wl_data_source_destroy(_glfw.wl.selectionSource);
++        _glfw.wl.selectionSource = NULL;
++    }
++    bmuClipClear();
++    for (int i = 0; i < count; i++)
++    {
++        bmuClipMime[i] = _glfw_strdup(mimes[i]);
++        bmuClipData[i] = _glfw_calloc(1, sizes[i] ? sizes[i] : 1);
++        if (!bmuClipMime[i] || !bmuClipData[i])
++        {
++            bmuClipCount = i + 1;
++            bmuClipClear();
++            return 0;
++        }
++        memcpy(bmuClipData[i], datas[i], sizes[i]);
++        bmuClipSize[i] = sizes[i];
++        bmuClipCount = i + 1;
++    }
++    _glfw_free(_glfw.wl.clipboardString);
++    _glfw.wl.clipboardString = NULL;
++    _glfw.wl.selectionSource = wl_data_device_manager_create_data_source(_glfw.wl.dataDeviceManager);
++    if (!_glfw.wl.selectionSource)
++        return 0;
++    wl_data_source_add_listener(_glfw.wl.selectionSource, &dataSourceListener, NULL);
++    for (int i = 0; i < bmuClipCount; i++)
++        wl_data_source_offer(_glfw.wl.selectionSource, bmuClipMime[i]);
++    wl_data_device_set_selection(_glfw.wl.dataDevice, _glfw.wl.selectionSource, _glfw.wl.serial);
++    return 1;
++}
++
+ const char* _glfwGetClipboardStringWayland(void)
+ {
+     if (!_glfw.wl.selectionOffer)

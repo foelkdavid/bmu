@@ -79,6 +79,7 @@ fn void main(String[] args)
 | `open(title, w=1280, h=800, min_w=800, min_h=500, ui_scale=0)` | window (logical size), scale (0 = auto), font, layout map, 60 FPS, Esc doesn't quit |
 | `app_args(args)` | `--shot FILE` (PNG after `--frames N`=3, then exit), `--scale S` |
 | `running()` / `quit = true` | loop condition / leave the loop |
+| `clipboard_set_data(mimes, datas) -> bool` | clipboard in other formats (image/png, text/uri-list…) |
 | `backend()`, `glfw_version()`, `gpu()`, `gl_version()` | runtime facts for an About page ("Wayland", GL renderer/version) |
 | `hold_close`, `close_requested` | close button asks the app instead of quitting (confirm while busy) |
 | `frame_begin(modal=false)` / `frame_end()` | start (input, zoom keys, clear, 2D zoom) / finish (popup, tooltip, toast, present) |
