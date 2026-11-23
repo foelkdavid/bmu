@@ -160,6 +160,8 @@ fn void check_fileop() => @pool()
 	put("a/one.txt", "again");
 	p = run(TRASH, "a", { "one.txt" });
 	expect(p.state == DONE && get("data/Trash/files/one.txt.2") == "again", "fileop: trash name collision");
+	p = run(DELETE, "data/Trash/files", { "one.txt" });
+	expect(p.state == DONE && !there("data/Trash/files/one.txt") && !there("data/Trash/info/one.txt.trashinfo") && there("data/Trash/info/one.txt.2.trashinfo"), "fileop: delete in trash removes its info");
 	p = run(DELETE, "b", { "tree2", "one.txt" });
 	expect(p.state == DONE && p.files_done == 2 && !there("b/tree2") && !there("b/one.txt"), "fileop: delete");
 

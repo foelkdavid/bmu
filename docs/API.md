@@ -436,7 +436,7 @@ no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all me
 
 | call/type | contract |
 |---|---|
-| `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent. False (nothing started) when busy, input invalid, or out of memory. |
+| `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent; deleting inside the trash's `files/` folder also removes the items' `.trashinfo` records. False (nothing started) when busy, input invalid, or out of memory. |
 | `job.busy() -> bool` | From `start` until `finished` reaped it. |
 | `job.status(Progress* out)` | Snapshot: `state`, `kind`, `items`, `files_done/total`, `bytes_done/total`, `skipped`, `can_cancel`, `current`, `conflict`, `conflict_dir`, `error`. `IDLE` when no job. |
 | `job.answer(Answer a, bool all = false)` | Reply in state `CONFLICT`: `REPLACE`, `SKIP`, `KEEP_BOTH` ("name (2).ext"); `all` reuses it for later conflicts of this job. |

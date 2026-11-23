@@ -230,7 +230,7 @@ fn bool Job.finished(&self, Progress* out)
 	self.mutex.unlock();
 	if (!done) return false;
 	self.status(out);
-	self.reap();
+	reap(self);
 	return true;
 }
 
@@ -239,10 +239,10 @@ fn void Job.close(&self)
 {
 	if (!self.started) return;
 	self.cancel();
-	self.reap();
+	reap(self);
 }
 
-fn void Job.reap(&self) @private
+fn void reap(Job* self) @private
 {
 	self.worker.join()!!;
 	self.wake.destroy();
@@ -921,11 +921,27 @@ fn State delete_all(Job* j) @private
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
 		if (!scan(j, 0)) return j.p.error[0] ? FAILED : CANCELLED;
 	}
+	// Deleting inside the trash also removes each item's .trashinfo record (freedesktop spec).
+	char[4096] trash;
+	trash_dir(&trash);
+	usz tl = txt::view(&trash).len;
+	bool in_trash = push(&trash, &tl, "files") && src_dir == txt::view(&trash);
 	set_state(j, RUNNING);
 	for (int i = 0; i < j.count; i++)
 	{
 		set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
 		if (!remove_tree(j, 0, true, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
+		if (in_trash)
+		{
+			char[4096] info;
+			trash_dir(&info);
+			usz il = txt::view(&info).len;
+			if (push(&info, &il, "info") && push(&info, &il, src_name(j, i)) && il + 10 < info.len)
+			{
+				txt::append(&info, ".trashinfo");
+				c_unlink(zp(&info));
+			}
+		}
 	}
 	return DONE;
 }
