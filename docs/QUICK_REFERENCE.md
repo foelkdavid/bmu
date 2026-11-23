@@ -1,7 +1,7 @@
 # bmu quick reference (one page)
 
 The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
-Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`, `bmu::fileop`, `bmu::find`; raylib is `rl::`.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`, `bmu::fileop`, `bmu::find`, `bmu::archive`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
@@ -124,7 +124,9 @@ fn void main(String[] args)
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
-| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `SudoRun.start(argv, &password)` / `.poll()` runs a program as root; `start_elevated(..., &password)` runs a job as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
+| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `SudoRun.start(argv, &password)` / `.poll()` runs a program as root; `start_elevated(..., &password)` runs a job as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)`; `Job.extract(archive, inner, names, dst, smart)` unpacks an archive (`EXTRACT`) |
+| **archive** (`archive::`) | |
+| `load()`, `is_archive(name)`, `stem(name)`, `Index.start(path)`, `.phase()`, `.progress(..)`, `.list(rel, &out, hidden)`, `.find(rel)`, `.size(i)` `.mtime(i)` `.is_dir(i)`, `.close()` | libarchive via lazy `dlopen`; background table of contents, folders listed from memory |
 | **find** (`find::`) | |
 | `Finder.start(root, query, hidden)`, `.results()`, `.rel(i)` `.name(i)` `.folder(i)` `.is_dir(i)`, `.searching()`, `.limited()`, `.close()` | background recursive name search, breadth-first, same filesystem, append-only hits |
 | **txt** (`txt::`) — `char[]` buffers | |

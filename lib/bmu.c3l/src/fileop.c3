@@ -1,6 +1,6 @@
 module bmu::fileop;
 import std::thread, std::core::string, std::math, libc;
-import bmu::txt, bmu::sys;
+import bmu::txt, bmu::sys, bmu::archive;
 
 // bmu::fileop - background copy / move / trash / delete for file managers (Linux x86_64, no raylib).
 //
@@ -17,6 +17,8 @@ import bmu::txt, bmu::sys;
 //      (renameat2 RENAME_NOREPLACE); a replaced item is moved aside first and deleted only afterwards.
 //      Cross-filesystem moves call syncfs() on the target before the sources are deleted.
 // TRASH follows the freedesktop.org Trash spec (home trash only). DELETE is permanent.
+// EXTRACT unpacks an archive (bmu::archive) into a hidden staging folder in the target, then commits the
+// staged items like a same-filesystem MOVE (conflicts asked, rollback on cancel, staging always removed).
 
 extern fn CInt c_lstat(ZString path, libc::Stat* st) @cname("lstat") @private;
 extern fn CInt c_stat(ZString path, libc::Stat* st) @cname("stat") @private;
@@ -73,7 +75,7 @@ const int MAX_DEPTH = 128;       // folder nesting below an item
 const usz CHUNK = 4 * 1024 * 1024; // bytes per copy step (cancel / progress granularity)
 const usz FALLBACK_BUF = 1024 * 1024;
 
-enum Kind { COPY, MOVE, TRASH, DELETE, COUNT, RESTORE }
+enum Kind { COPY, MOVE, TRASH, DELETE, COUNT, RESTORE, EXTRACT }
 enum State { IDLE, SCANNING, RUNNING, CONFLICT, FINISHING, DONE, CANCELLED, FAILED }
 enum Answer { REPLACE, SKIP, KEEP_BOTH }
 enum Plan @private { SKIP, RENAME, COPY }
@@ -128,6 +130,8 @@ struct Job
 	bool permanent_fallback;
 	char[4096] src_dir;
 	char[4096] dst_dir;
+	char[4096] inner;    // EXTRACT: folder inside the archive ("" = its root)
+	bool smart;          // EXTRACT: several top-level items go into a folder named after the archive
 	char* names;
 	Item* items;
 	int count;
@@ -168,23 +172,38 @@ fn bool Job.start(&self, Kind kind, String src_dir, String[] names, String dst_d
 *>
 fn bool Job.start_elevated(&self, Kind kind, String src_dir, String[] names, String dst_dir, char[] password, bool permanent_fallback = false)
 {
-	if (kind == TRASH || kind == RESTORE) return false;
+	if (kind == TRASH || kind == RESTORE || kind == EXTRACT) return false;
 	return begin(self, kind, src_dir, names, dst_dir, permanent_fallback, password);
+}
+
+<*
+ EXTRACT: unpack archive `archive_path` (absolute) into folder `dst_dir`. `inner` is a folder inside the archive
+ (normalized, "" = root); `names` are direct children of it (empty = everything in it). Items land in dst_dir
+ relative to `inner`. With `smart`, several top-level items are put into one new folder named after the
+ archive (archive::stem); a single one is placed as is. Call archive::load() first (false when unavailable).
+ Progress: bytes_done / bytes_total are compressed bytes read of the archive size. Not elevatable.
+*>
+fn bool Job.extract(&self, String archive_path, String inner, String[] names, String dst_dir, bool smart = false)
+{
+	if (self.started || !archive::load() || inner.len >= self.inner.len) return false;
+	txt::set(&self.inner, inner);
+	self.smart = smart;
+	return begin(self, EXTRACT, archive_path, names, dst_dir, false, {});
 }
 
 fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_dir, bool permanent_fallback, char[] password) @private
 {
-	if (self.started || !names.len || names.len > MAX_ITEMS) return false;
+	if (self.started || (!names.len && kind != EXTRACT) || names.len > MAX_ITEMS) return false;
 	if (!src_dir.starts_with("/") || src_dir.len >= 4096 || dst_dir.len >= 4096) return false;
-	if ((kind == COPY || kind == MOVE) && !dst_dir.starts_with("/")) return false;
+	if ((kind == COPY || kind == MOVE || kind == EXTRACT) && !dst_dir.starts_with("/")) return false;
 	usz bytes;
 	foreach (n : names)
 	{
 		if (!n.len || n.len > 255 || n == "." || n == ".." || n.contains("/")) return false;
 		bytes += n.len + 1;
 	}
-	char* store = libc::malloc(bytes);
-	Item* items = libc::calloc(names.len, Item::size);
+	char* store = libc::malloc(bytes + 1);
+	Item* items = libc::calloc(names.len + 1, Item::size);
 	char* buf = libc::malloc(FALLBACK_BUF);
 	if (!store || !items || !buf) { libc::free(store); libc::free(items); libc::free(buf); return false; }
 	usz at;
@@ -356,6 +375,7 @@ fn int work(void* arg) @private
 				case DELETE: end = delete_all(j);
 				case COUNT: end = count_all(j);
 				case RESTORE: end = restore_all(j);
+				case EXTRACT: end = extract_all(j);
 			}
 		}
 	};
@@ -1065,6 +1085,142 @@ fn bool read_origin(Job* j, String name, char[] out) @private
 		case 5: return fail(j, "Unsupported original path for", name);
 		default: return fail(j, "Invalid original path for", name);
 	}
+}
+
+// ------------------------------------------------------------------------------------------- extract
+
+fn void extract_progress(void* ctx, ulong done, ulong total, String name) @private
+{
+	Job* j = ctx;
+	j.mutex.lock();
+	j.p.bytes_done = done;
+	j.p.bytes_total = total;
+	txt::set(&j.p.current, txt::basename(name));
+	j.mutex.unlock();
+}
+
+fn bool extract_stop(void* ctx) @private => stopped((Job*)ctx);
+
+<* Replace the job's items with the entries of folder `dir` (staged top-level items) for the commit. *>
+fn bool stage_items(Job* j, ZString dir) @private
+{
+	int n;
+	usz bytes;
+	for (int pass = 0; pass < 2; pass++)
+	{
+		void* d = sys::c_opendir(dir);
+		if (!d) return fail(j, "Cannot open folder", "");
+		int k;
+		usz at;
+		while (true)
+		{
+			sys::Dirent* e = sys::c_readdir(d);
+			if (!e) break;
+			String name = ((ZString)&e.name).str_view();
+			if (name == "." || name == "..") continue;
+			if (pass == 0) { n++; bytes += name.len + 1; continue; }
+			if (k >= n) break;
+			j.items[k] = { .src = (uint)at };
+			txt::set(&j.items[k].dst, name);
+			libc::memcpy(j.names + at, name.ptr, name.len);
+			j.names[at + name.len] = 0;
+			at += name.len + 1;
+			k++;
+		}
+		sys::c_closedir(d);
+		if (pass == 1) { n = k; break; }
+		if (n > MAX_ITEMS) { *c_errno() = 0; return fail(j, "Too many items at the top of the archive", ""); }
+		libc::free(j.names);
+		libc::free(j.items);
+		j.names = libc::malloc(bytes + 1);
+		j.items = libc::calloc((usz)n + 1, Item::size);
+		j.count = 0;
+		if (!j.names || !j.items) { *c_errno() = 0; return fail(j, "Out of memory", ""); }
+	}
+	j.count = n;
+	return true;
+}
+
+fn State extract_all(Job* j) @private => @pool()
+{
+	libc::Stat dst_st;
+	if (c_stat(zp(&j.dst_dir), &dst_st) != 0 || (dst_st.st_mode & S_IFMT) != S_IFDIR)
+	{
+		fail(j, "Cannot open target folder", txt::basename(txt::view(&j.dst_dir)));
+		return FAILED;
+	}
+	// libarchive refuses symlinks on the way to an entry: give it the resolved target.
+	char[4096] real;
+	if (!sys::c_realpath(zp(&j.dst_dir), &real)) { fail(j, "Cannot open target folder", txt::basename(txt::view(&j.dst_dir))); return FAILED; }
+	txt::set(&j.dst_dir, ((ZString)&real).str_view());
+	String dst_dir = txt::view(&j.dst_dir);
+	uint rnd;
+	c_getrandom(&rnd, uint::size, 0);
+	char[4096] stage;
+	char[4096] root;
+	if (!set_path(&stage, &&(usz){}, dst_dir, string::tformat(".sms-xtract-%d-%x", j.pid, rnd))
+		|| !set_path(&root, &&(usz){}, txt::view(&stage), "x"))
+	{
+		*c_errno() = 0;
+		fail(j, "Path too long", txt::basename(dst_dir));
+		return FAILED;
+	}
+	// The staging folder is private (0700) until its items are renamed into place.
+	if (sys::c_mkdir(zp(&stage), 0o700) != 0) { fail(j, "Cannot create a folder in", txt::basename(dst_dir)); return FAILED; }
+	State end = FAILED;
+	if (sys::c_mkdir(zp(&root), 0o777) != 0)
+	{
+		fail(j, "Cannot create a folder in", txt::basename(dst_dir));
+	}
+	else
+	{
+		set_state(j, RUNNING);
+		String[] names = mem::talloc_array(String, (usz)j.count + 1)[:(usz)j.count];
+		for (int i = 0; i < j.count; i++) names[i] = src_name(j, i);
+		archive::Sink* sink = mem::tnew(archive::Sink);
+		sink.ctx = j;
+		sink.progress = &extract_progress;
+		sink.stop = &extract_stop;
+		switch (archive::extract(txt::view(&j.src_dir), txt::view(&j.inner), names, txt::view(&root), sink))
+		{
+			case DONE:
+				j.mutex.lock(); j.p.skipped += sink.skipped; j.mutex.unlock();
+				end = commit_extract(j, &stage, &root);
+			case CANCELLED:
+				end = CANCELLED;
+			case FAILED:
+				fail_text(j, txt::view(&sink.error));
+				end = j.cancel_req ? CANCELLED : FAILED;
+		}
+	}
+	set_current(j, "Cleaning up");
+	discard(j, zp(&stage));
+	return end;
+}
+
+<* Move the staged items into the target like a same-filesystem MOVE (conflicts, rollback). *>
+fn State commit_extract(Job* j, char[] stage, char[] root) @private => @pool()
+{
+	if (!stage_items(j, zp(root))) return FAILED;
+	if (!j.count) return DONE;
+	String src = txt::view(root);
+	if (j.smart && j.count > 1)
+	{
+		String name = archive::stem(txt::basename(txt::view(&j.src_dir)));
+		String named = txt::join(txt::view(stage), name);
+		if (named != src && sys::c_rename(zp(root), named.zstr_tcopy()) != 0) { fail(j, "Cannot create folder", name); return FAILED; }
+		c_chmod(named.zstr_tcopy(), 0o755);
+		src = txt::view(stage);
+		if (!stage_items(j, zp(stage))) return FAILED;
+	}
+	txt::set(&j.src_dir, src);
+	j.mutex.lock();
+	j.p.items = j.count;
+	j.mutex.unlock();
+	j.kind = MOVE;
+	State end = transfer(j);
+	j.kind = EXTRACT;
+	return end;
 }
 
 <* mkdir -p for a restore target's parent (4095-byte paths). *>

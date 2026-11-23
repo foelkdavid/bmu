@@ -31,6 +31,7 @@ fn int main(String[] args)
 	check_fileop();
 	check_find();
 	check_elevated();
+	check_archive();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 	return 0;

@@ -420,6 +420,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
+| archives | 65536 entries per index (implied folders included), 8 MiB of entry paths, 255-byte path components, 4095-byte paths; one index per `archive::Index`; 64 KiB read blocks; encrypted entries are not extracted |
 | recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
 | image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`); one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
@@ -456,6 +457,7 @@ no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all me
 | call/type | contract |
 |---|---|
 | `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent; deleting inside the trash's `files/` folder also removes the items' `.trashinfo` records. `COUNT` changes nothing: it only fills `files_total` (files, folders, links) and `bytes_total` (sum of file sizes), e.g. for a "delete 1,234 items, 4.2 GB?" question; cancel it with `close()` when the question goes away. `RESTORE` takes names in a trash's `files/` folder as `src_dir`/`names` and moves each item back to the path in its `info/NAME.trashinfo` record (recreating missing parent folders; existing targets go through the usual conflict answers), then removes the record. False (nothing started) when busy, input invalid, or out of memory. |
+| `job.extract(String archive_path, String inner, String[] names, String dst_dir, bool smart = false) -> bool` | `EXTRACT`: unpack an archive (`bmu::archive`) into `dst_dir`. `inner` is a normalized folder inside the archive (`""` = root), `names` are direct children of it (empty = everything in it); items land relative to `inner`. With `smart`, several top-level items go into one new folder named `archive::stem(name)` (`foo.tar.gz` → `foo/`), a single one is placed as is. Everything is written to a private staging folder (`.sms-xtract-PID-R`, 0700) in `dst_dir`, then committed like a same-filesystem `MOVE` (conflicts asked, rollback on cancel); the staging folder is always removed. `bytes_done/total` are compressed bytes read of the archive size. Calls `archive::load()` (false without libarchive). Not elevatable. |
 | `job.start_elevated(kind, src_dir, names, dst_dir, char[] password, permanent_fallback = false) -> bool` | Same job as root: runs `sudo -k -S -p "" -- <this program> --bmu-fileop-helper <token>`. The password is written to sudo once (first stdin line) and wiped; `-k` means sudo neither uses nor caches credentials, so every elevated job asks again. Not for `TRASH` / `RESTORE`. Progress, conflicts, cancel and rollback behave as with `start`. A rejected password ends `FAILED` with error `"Wrong password"`; sudo's own refusal text is passed on. Wipe your password buffer (`ui::wipe`) after the call. |
 | `fileop::is_helper(args)`, `fileop::helper_main(args) -> int` | Apps that use `start_elevated` must begin `main` with `if (fileop::is_helper(args)) return fileop::helper_main(args);` (before settings, windows or anything else): that is the only code running as root. The helper reads one job, runs it with the normal engine and exits; files it creates get the target folder's owner. |
 | `fileop::SudoRun`: `run.start(String[] argv, char[] password, bool keep_display = true) -> bool`, `run.poll() -> SudoState`, `run.error` | Start a program as root (e.g. an editor for a root-owned file) via `elevate_cmd` (`sudo -k -S`, no cached credentials). The password is written once and wiped; with `keep_display` the `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR` / `DISPLAY` variables pass through `env` so windows can open. The program runs in its own session (quitting the app leaves it running); a thread drains its stderr and reaps it, so `poll()` (`RUNNING`, `DONE`, `FAILED`) is a lock + copy. `error`: "Wrong password", sudo's refusal, or "The program failed". Stable address while running. |
@@ -485,8 +487,36 @@ How it stays safe (COPY / MOVE are all-or-nothing):
   items stay, the rest is undone and no source is deleted: nothing is lost, at worst something exists twice.
 - `TRASH` follows the freedesktop.org Trash spec (`files/` + `info/NAME.trashinfo`, collisions become `NAME.2`);
   only the home trash, no per-volume `.Trash-UID` folders (RESTORE refuses relative recorded paths). Trash/delete/restore cancel stops between items (no undo); restoring across filesystems is refused.
+- `EXTRACT` never writes outside the target: entry paths are normalized (`..` entries are skipped, leading `/` is
+  dropped) and libarchive refuses to write through symlinks (`SECURE_SYMLINKS`, `SECURE_NODOTDOT`). Times and
+  permission bits (minus setuid/setgid, through the umask) are restored; owners, ACLs and xattrs are not.
 - Hard links are copied as separate files; owners are not preserved. Filesystems without `RENAME_NOREPLACE` use
   check-then-rename (a tiny race).
+
+## Archives (`bmu::archive`)
+
+Read zip, tar (plain, gz, bz2, xz, zst, lz), 7z, rar, iso, cpio, deb, rpm, cab, lha, xar and bare `.gz/.xz/...`
+files through libarchive (Linux, no raylib). libarchive is **not linked**: `archive::load()` `dlopen`s
+`libarchive.so.13` on first use, so programs that never touch an archive pay nothing at startup, and a system
+without it only loses archives. Zero-initialize `archive::Index` at a stable address; methods are UI-thread-only.
+
+| call | contract |
+|---|---|
+| `archive::load() -> bool`, `archive::available() -> bool` | Load libarchive once (UI thread, before an `Index` or `EXTRACT` job). |
+| `archive::is_archive(String name) -> bool` | Extension check only (no I/O): `.zip .jar .apk .war .xpi .tar .tgz .tbz .tbz2 .txz .tzst .tlz .7z .rar .iso .cpio .deb .rpm .cab .lha .lzh .xar` and single-file `.gz .xz .bz2 .zst .lz .lzma .lz4 .z` (read as one entry unless the stream holds an archive). |
+| `archive::stem(String name) -> String` | `foo.tar.gz` → `foo`, `bar.zip` → `bar`, `notes.txt.xz` → `notes.txt` (never empty). |
+| `archive::normalize(String p, char[] out) -> sz` | Entry path without leading `/`, `.`/empty components or trailing `/`; 0 = root, -1 = `..` or too long. |
+| `index.start(String path) -> bool` | Read the table of contents of absolute `path` on a worker (headers only, data skipped). False when started (`close()` first), libarchive missing or no memory. |
+| `index.phase() -> Phase` | `IDLE`, `LOADING`, `READY`, `FAILED` (`index.error_text()`). One lock: poll it each frame while loading. |
+| `index.progress(&entries, &done, &total)` | Entries read and compressed bytes consumed of the archive size (one lock). |
+| `index.list(String rel, sys::Entry[] out, bool hidden) -> int` | READY: direct children of folder `rel` (`""` = root), folders first, alphabetical (like `sys::list_dir`). Memory only, linear in the folder's subtree: call on navigation. |
+| `index.find(rel) -> int`, `.has_dir(rel)`, `.entries()`, `.rel(i)`, `.name(i)`, `.is_dir(i)`, `.is_link(i)`, `.size(i)`, `.mtime(i)` | READY: binary search by normalized path; entry details (size -1 = unknown, e.g. a bare `.gz`). |
+| `index.truncated`, `index.encrypted` | READY: a limit was hit or unsafe/too-long paths were skipped; some entries are encrypted. |
+| `index.close()` | Cancel, join, free. Prompt even inside a huge compressed entry: archives are read through bmu's own reader, which stops at the next 64 KiB read. Call before a new `start` and on exit. |
+| `archive::extract(path, inner, names, dest, Sink*) -> Result` | Blocking extraction used by `job.extract` (worker threads only). |
+
+Folders that exist only implicitly (`a/b/c.txt` without `a/` entries) are added; repeated paths keep the later
+entry. Use `job.extract` (see `bmu::fileop`) to unpack with progress, conflicts and cancel.
 
 ## Recursive name search (`bmu::find`)
 

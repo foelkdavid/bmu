@@ -72,6 +72,7 @@ for the use: 128 names, 256 short text, 1024 paths. Anything built per frame (`s
 | `bmu::picker` | `picker.c3` | file/folder chooser (uses ui, txt, sys) |
 | `bmu::image` | `image.c3` | bounded CPU-only async image loader; UI thread owns texture upload |
 | `bmu::find` | `find.c3` | background recursive file-name search (no raylib) |
+| `bmu::archive` | `archive.c3` | archives via libarchive (lazy `dlopen`): background table of contents, extraction for `fileop` EXTRACT (no raylib) |
 | `bmu::fileop` | `fileop.c3` | background copy/move/trash/delete with progress and rollback (no raylib) |
 | `bmu::txt` | `txt.c3` | char buffer + string helpers (no raylib) |
 | `bmu::sys` | `sys.c3` | POSIX file/process helpers (no raylib) |
