@@ -75,6 +75,7 @@ fn void main(String[] args)
 | `Color clear_color = BG` | Background colour. |
 | `fn void fit_window(bool resize)` | Re-apply the min size for the current scale; `resize` also resets the window size. |
 | `fn void close()` | Unload the font, close the window. |
+| `fn String backend()`, `glfw_version()`, `gpu()`, `gl_version()` | Runtime facts for an About page or bug report: windowing backend ("Wayland"), GLFW version string, GPU/driver (GL_RENDERER), OpenGL version. After `open()`, UI thread; cheap, but call on demand, not per frame. |
 
 Gotchas
 - Call all widgets between `frame_begin` and `frame_end`. Drawing raw raylib (`rl::draw_*`) there is fine; it is

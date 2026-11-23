@@ -151,3 +151,37 @@ fn void frame_end()
 		quit = true;
 	};
 }
+
+// Runtime facts for an "About" page or a bug report. Call after open(), on the UI thread (GL context).
+alias GlGetStringFn @private = fn ZString(CUInt name);
+extern GlGetStringFn glad_get_string @cname("glad_glGetString") @private;
+extern fn CInt glfw_get_platform() @cname("glfwGetPlatform") @private;
+extern fn ZString glfw_version_string() @cname("glfwGetVersionString") @private;
+
+<* Windowing backend in use: "Wayland", "X11", "Win32", "Cocoa", "null" or "unknown". *>
+fn String backend()
+{
+	switch (glfw_get_platform())
+	{
+		case 0x00060003: return "Wayland";
+		case 0x00060004: return "X11";
+		case 0x00060001: return "Win32";
+		case 0x00060002: return "Cocoa";
+		case 0x00060005: return "null";
+		default: return "unknown";
+	}
+}
+
+<* GLFW's compile-time version string, e.g. "3.4.0 Wayland EGL OSMesa monotonic". *>
+fn String glfw_version() => glfw_version_string().str_view();
+
+fn String gl_string(CUInt name) @private
+{
+	if (!glad_get_string) return "unknown";
+	ZString s = glad_get_string(name);
+	return s ? s.str_view() : "unknown";
+}
+
+<* GPU / driver name (GL_RENDERER) and OpenGL version (GL_VERSION). *>
+fn String gpu() => gl_string(0x1F01);
+fn String gl_version() => gl_string(0x1F02);
