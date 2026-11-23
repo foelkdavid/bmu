@@ -64,7 +64,7 @@ const int MAX_DEPTH = 128;       // folder nesting below an item
 const usz CHUNK = 4 * 1024 * 1024; // bytes per copy step (cancel / progress granularity)
 const usz FALLBACK_BUF = 1024 * 1024;
 
-enum Kind { COPY, MOVE, TRASH, DELETE }
+enum Kind { COPY, MOVE, TRASH, DELETE, COUNT }
 enum State { IDLE, SCANNING, RUNNING, CONFLICT, FINISHING, DONE, CANCELLED, FAILED }
 enum Answer { REPLACE, SKIP, KEEP_BOTH }
 enum Plan @private { SKIP, RENAME, COPY }
@@ -133,7 +133,8 @@ struct Job
 <*
  Start an operation on `names` (plain names, no '/') inside `src_dir`. COPY / MOVE put them into `dst_dir`.
  TRASH moves them to the home trash; with `permanent_fallback` items on other filesystems are deleted
- permanently instead of failing. DELETE removes them permanently. Directories should be absolute,
+ permanently instead of failing. DELETE removes them permanently. COUNT only adds up files_total / bytes_total
+ (for a size display). Directories should be absolute,
  resolved paths. Returns false when busy or the input is invalid (nothing started).
 *>
 fn bool Job.start(&self, Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false)
@@ -303,6 +304,7 @@ fn int work(void* arg) @private
 			case MOVE: end = transfer(j);
 			case TRASH: end = trash(j);
 			case DELETE: end = delete_all(j);
+			case COUNT: end = count_all(j);
 		}
 	};
 	j.mutex.lock();
@@ -912,6 +914,18 @@ fn State rollback(Job* j) @private
 }
 
 // ------------------------------------------------------------------------------------------ trash/delete
+
+<* COUNT: totals only (files_total counts files, folders and links; bytes_total = sum of file sizes). *>
+fn State count_all(Job* j) @private
+{
+	String src_dir = txt::view(&j.src_dir);
+	for (int i = 0; i < j.count; i++)
+	{
+		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
+		if (!scan(j, 0)) return j.p.error[0] ? FAILED : CANCELLED;
+	}
+	return DONE;
+}
 
 fn State delete_all(Job* j) @private
 {

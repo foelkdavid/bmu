@@ -151,6 +151,10 @@ fn void check_fileop() => @pool()
 		expect(no_temporaries("b"), "fileop: no temporaries after cancel");
 	}
 
+	// COUNT adds up without changing anything (big: 40 files of 10 bytes + the folder).
+	p = run(COUNT, ".", { "big" });
+	expect(p.state == DONE && p.files_total == 41 && p.bytes_total == 400 && there("big/f0"), "fileop: count");
+
 	// Trash (freedesktop layout under XDG_DATA_HOME) and permanent delete.
 	expect(fileop::can_trash(at("a/one.txt")), "fileop: can_trash same filesystem");
 	p = run(TRASH, "a", { "one.txt" });
