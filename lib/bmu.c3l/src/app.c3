@@ -31,6 +31,8 @@ int shot_frames = 3;
 int frame_count;
 int stable_frames;      // frames since the window was last resized (a tiling WM resizes right after mapping)
 bool quit;              // set to true to leave the loop (running() returns false)
+bool hold_close;        // the window's close button does not quit: it sets close_requested instead
+bool close_requested;   // the user tried to close while hold_close (the app clears it, e.g. after asking)
 
 <*
  Open a resizable window of w x h LOGICAL px (clamped to 90% of the monitor), set
@@ -88,7 +90,15 @@ fn void app_args(String[] args)
 	}
 }
 
-fn bool running() => !quit && !rl::window_should_close();
+<* Loop condition. With `hold_close`, a close request sets `close_requested` and keeps running. *>
+fn bool running()
+{
+	if (quit) return false;
+	if (!rl::window_should_close()) return true;
+	if (!hold_close) return false;
+	close_requested = true;
+	return true;
+}
 
 <*
  Start a frame: input state (begin_frame), Ctrl +/-/0 zoom (with Shift if zoom_shift_only), input layer (`modal`

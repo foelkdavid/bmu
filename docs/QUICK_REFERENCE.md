@@ -1,7 +1,7 @@
 # bmu quick reference (one page)
 
 The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
-Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`; raylib is `rl::`.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`, `bmu::fileop`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
@@ -79,6 +79,7 @@ fn void main(String[] args)
 | `open(title, w=1280, h=800, min_w=800, min_h=500, ui_scale=0)` | window (logical size), scale (0 = auto), font, layout map, 60 FPS, Esc doesn't quit |
 | `app_args(args)` | `--shot FILE` (PNG after `--frames N`=3, then exit), `--scale S` |
 | `running()` / `quit = true` | loop condition / leave the loop |
+| `hold_close`, `close_requested` | close button asks the app instead of quitting (confirm while busy) |
 | `frame_begin(modal=false)` / `frame_end()` | start (input, zoom keys, clear, 2D zoom) / finish (popup, tooltip, toast, present) |
 | `zoom_shift_only`, `zoom_step()` | require Shift for built-in UI zoom; layout-aware +/- presses for custom content zoom |
 | `zoom(s)`, `zoom_changed`, `zoom_toast`, `clear_color`, `close()` | scale like Ctrl +/-; "changed this frame" flag; toast on/off; background; shutdown |
@@ -116,6 +117,8 @@ fn void main(String[] args)
 | `last_dir`, `add_place(icon, name, path)`, `clear_places()`, `set_ext_icon(ext, icon)` | last folder used; sidebar entries; per-extension list icon |
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
+| **fileop** (`fileop::`) | |
+| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE`; progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)` |
 | **txt** (`txt::`) — `char[]` buffers | |
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |

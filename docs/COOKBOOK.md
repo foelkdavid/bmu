@@ -7,7 +7,7 @@ last recipe runs a small app that uses most of them: copy freely.
 module cookbook;
 import std::io, std::math, std::core::string, std::core::dstring;
 import raylib6::rl;
-import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::image;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::image, bmu::fileop;
 ```
 
 ## Labelled form fields with a Browse button
@@ -447,6 +447,66 @@ fn void child_stop() { if (child_pid > 0) sys::c_kill(-child_pid, sys::SIGTERM);
 ```
 
 Show the log: `ui::text(sys::read_tail(path, 4096), ...)` line by line inside a clipped, scrolled area.
+
+## Copy files in the background, with progress and a quit guard
+
+One `fileop::Job` per running operation. Poll it every frame; draw a progress bar; answer name conflicts in a
+modal; ask before the window closes while it runs.
+
+```c3
+fileop::Job copier;              // global: stable address
+bool replace_all;
+
+fn void copy_into(String src_dir, String[] names, String dst_dir)
+{
+	if (!copier.start(COPY, src_dir, names, dst_dir)) ui::toast("Another copy is still running", ui::RED);
+}
+
+// Call every frame (layer 0 for the bar, the conflict modal draws on layer 1). True while the copy needs a modal.
+fn bool copy_progress(Rect bar) => @pool()
+{
+	fileop::Progress p;
+	if (copier.finished(&p))
+	{
+		ui::hold_close = false;
+		if (p.state == DONE) { ui::toast("Copied", ui::GREEN); }
+		else if (p.state == FAILED) { ui::toast(txt::view(&p.error), ui::RED); }
+		return false;
+	}
+	if (!copier.busy()) return false;
+	ui::hold_close = true;       // the close button now sets ui::close_requested
+	copier.status(&p);
+	float f = p.bytes_total ? (float)p.bytes_done / (float)p.bytes_total : 0;
+	ui::panel(bar, ui::BG1, 4);
+	ui::panel({ bar.x, bar.y, bar.width * f, bar.height }, ui::AQUA, 4);
+	ui::text_fit(txt::view(&p.current), bar.x, bar.y + bar.height + 4, bar.width, 13, ui::FG4);
+	if (p.state != CONFLICT) return false;
+	ui::layer = 1;
+	Rect box = ui::dialog(420, 170);
+	ui::dialog_header(box, ui::I_WARN, "Name already exists");
+	ui::text_fit(txt::view(&p.conflict), box.x + 20, box.y + 60, box.width - 40, 15, ui::FG);
+	ui::checkbox(box.x + 20, box.y + 84, "Apply to all", &replace_all);
+	if (ui::button({ box.x + 20, box.y + 120, 120, 36 }, "Replace", DANGER)) copier.answer(REPLACE, replace_all);
+	if (ui::button({ box.x + 150, box.y + 120, 120, 36 }, "Skip")) copier.answer(SKIP, replace_all);
+	if (ui::button({ box.x + 280, box.y + 120, 120, 36 }, "Keep both", PRIMARY)) copier.answer(KEEP_BOTH, replace_all);
+	ui::layer = 0;
+	return true;
+}
+
+// Draw while ui::close_requested is set: Cancel keeps the app open, Quit rolls the copy back and leaves.
+fn void quit_guard()
+{
+	if (!ui::close_requested) return;
+	ui::layer = 1;
+	Rect box = ui::dialog(400, 150);
+	if (ui::dialog_header(box, ui::I_WARN, "A copy is running") || ui::button({ box.x + 20, box.y + 90, 160, 40 }, "Keep running")) ui::close_requested = false;
+	if (ui::button({ box.x + 220, box.y + 90, 160, 40 }, "Cancel and quit", DANGER)) { copier.close(); ui::quit = true; }
+	ui::layer = 0;
+}
+```
+
+Pass `copy_progress(...) || ui::close_requested` (with your other modals) to the next `frame_begin`. On exit call
+`copier.close()`: it cancels and waits, so nothing is left half-written.
 
 ## Putting it together
 

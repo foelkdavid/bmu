@@ -63,6 +63,8 @@ fn void main(String[] args)
 | `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, and once the window size has been stable for 5 frames, so a tiling WM's resize is not caught; then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
 | `fn bool running()` | `false` when the window is closed, `quit` was set, or the `--shot` was taken. |
 | `bool quit` | Set to `true` to end the loop (e.g. a Quit button). |
+| `bool hold_close = false` | Set true while closing must be confirmed (e.g. a file copy runs): the window's close button then sets `close_requested` instead of ending the loop. |
+| `bool close_requested` | Set by `running()` when the user tried to close under `hold_close`. Show your question, clear it, and set `quit = true` to really close. |
 | `fn void frame_begin(bool modal = false)` | Resets per-frame input state, handles **Ctrl + / Ctrl − / Ctrl 0** (zoom, auto), sets `top` = `modal ? 1 : 0` (unless a dropdown is open), `begin_drawing`, clears to `clear_color`, starts the 2D zoom, `layer = 0`. |
 | `fn void frame_end()` | Draws the open dropdown popup, the tooltip and the toast **on top of everything**, sets the mouse cursor, ends drawing, handles `--shot`. |
 | `bool zoom_shift_only = false` | Set true to use Ctrl+Shift +/-/0 for whole-UI zoom, reserving plain Ctrl +/-/0 for app-specific content zoom. |
@@ -401,6 +403,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
+| file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
 | image loader | 4095-byte paths; 32 MiB compressed file; 32,000,000 source pixels; 16384 px source edge; 1600 px preview edge; one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
@@ -424,6 +427,42 @@ Upload textures on the UI thread only. No thumbnails or global cache. Full sourc
 and resize buffers are temporary: the preview limit is **not** a total-memory cap. Decoder allocation failure
 may report `INVALID_IMAGE`; `NO_MEMORY` only identifies the loader's own input allocation failure.
 Headers and decoding use the stb_image symbols from the bundled raylib static archive.
+
+## Background file operations (`bmu::fileop`)
+
+Copy, move, trash or delete on a worker thread with progress, name-conflict questions and safe cancel (Linux,
+no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all methods are UI-thread-only and cheap
+(a mutex lock, no I/O), so polling `status()` every frame is fine.
+
+| call/type | contract |
+|---|---|
+| `job.start(Kind kind, String src_dir, String[] names, String dst_dir = "", bool permanent_fallback = false) -> bool` | Copies the inputs and starts the worker. `names` are plain entry names (no `/`) in `src_dir`; directories must be absolute (pass resolved paths). `COPY`/`MOVE` need `dst_dir`. `TRASH` uses the home trash; with `permanent_fallback` items on another filesystem are deleted permanently instead of failing. `DELETE` is permanent. False (nothing started) when busy, input invalid, or out of memory. |
+| `job.busy() -> bool` | From `start` until `finished` reaped it. |
+| `job.status(Progress* out)` | Snapshot: `state`, `kind`, `items`, `files_done/total`, `bytes_done/total`, `skipped`, `can_cancel`, `current`, `conflict`, `conflict_dir`, `error`. `IDLE` when no job. |
+| `job.answer(Answer a, bool all = false)` | Reply in state `CONFLICT`: `REPLACE`, `SKIP`, `KEEP_BOTH` ("name (2).ext"); `all` reuses it for later conflicts of this job. |
+| `job.cancel()` | Ask the worker to stop and roll back; ignored while `can_cancel` is false. |
+| `job.finished(Progress* out) -> bool` | True **once** after the worker ended: joins it, frees its memory, returns the final progress (`DONE`, `CANCELLED`, `FAILED` + `error`). Poll every frame while busy. |
+| `job.close()` | Cancel and wait (blocks during rollback). Call on shutdown. |
+| `fileop::can_trash(String path) -> bool` | Same filesystem as the home trash (one `lstat` + `stat`): call on the key press, not per frame. |
+| `fileop::trash_dir(char[] out)` | `$XDG_DATA_HOME/Trash`, default `~/.local/share/Trash`. |
+| `fileop::State` | `IDLE`, `SCANNING` (planning + counting), `CONFLICT` (waiting for `answer`), `RUNNING`, `FINISHING` (commit or rollback, not cancellable), `DONE`, `CANCELLED`, `FAILED`. |
+
+How it stays safe (COPY / MOVE are all-or-nothing):
+- Every item is checked and every conflict is answered **before** anything is written. A folder is never put inside
+  itself, and a folder that contains the source is never replaced.
+- Same-filesystem moves are `rename(2)`: instant, nothing is copied. Copies and cross-filesystem moves are written
+  to hidden temporaries (`.sms-part-PID-N`) in the target folder using `copy_file_range` (reflinks where the
+  filesystem supports them), falling back to read/write. Permissions, timestamps and symlinks are kept; FIFOs,
+  sockets and devices are skipped and counted in `skipped`.
+- Cancel or an error before the commit removes the temporaries, renames moved items back and restores replaced
+  ones; sources are never touched. The commit renames temporaries into place without overwriting
+  (`renameat2(RENAME_NOREPLACE)`); a replaced target is moved aside first and deleted only afterwards.
+- Cross-filesystem moves `syncfs` the target before deleting the sources. If the commit fails part way, finished
+  items stay, the rest is undone and no source is deleted: nothing is lost, at worst something exists twice.
+- `TRASH` follows the freedesktop.org Trash spec (`files/` + `info/NAME.trashinfo`, collisions become `NAME.2`);
+  only the home trash, no per-volume `.Trash-UID` folders. Trash/delete cancel stops between items (no undo).
+- Hard links are copied as separate files; owners are not preserved. Filesystems without `RENAME_NOREPLACE` use
+  check-then-rename (a tiny race).
 
 ## 17. Low level: without the app layer
 

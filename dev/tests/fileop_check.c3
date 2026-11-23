@@ -1,0 +1,172 @@
+module bmu::tests;
+import std::io, std::core::string, libc;
+import bmu::txt, bmu::sys, bmu::fileop;
+
+// Headless checks of bmu::fileop in a private temporary folder (also used as XDG_DATA_HOME for the trash).
+
+extern fn ZString mkdtemp(char* template) @cname("mkdtemp");
+extern fn CInt setenv(ZString name, ZString value, CInt overwrite) @cname("setenv");
+extern fn CInt symlink(ZString target, ZString path) @cname("symlink");
+extern fn sz readlink(ZString path, char* buf, usz n) @cname("readlink");
+extern fn CInt lstat(ZString path, libc::Stat* st) @cname("lstat");
+
+char[256] root;
+fileop::Job job;
+
+fn String at(String rel) => txt::join(txt::view(&root), rel);
+
+fn void put(String rel, String data) => @pool() { sys::write_file(at(rel), data); }
+
+fn String get(String rel)
+{
+	String? s = sys::read_temp(at(rel));
+	if (catch s) return "<missing>";
+	return s.copy(tmem);
+}
+
+fn bool there(String rel) => @pool()
+{
+	libc::Stat st;
+	return lstat(at(rel).zstr_tcopy(), &st) == 0;
+}
+
+<* Run a job to the end, answering conflicts with `reply`; returns the final progress. *>
+fn fileop::Progress run(fileop::Kind kind, String src, String[] names, String dst = "", fileop::Answer reply = KEEP_BOTH, bool cancel_on_conflict = false) => @pool()
+{
+	fileop::Progress p;
+	if (!job.start(kind, at(src), names, dst.len ? at(dst) : "")) { p.state = FAILED; txt::set(&p.error, "start refused"); return p; }
+	for (int spins = 0; spins < 20000; spins++)
+	{
+		if (job.finished(&p)) return p;
+		job.status(&p);
+		if (p.state == CONFLICT)
+		{
+			if (cancel_on_conflict) { job.cancel(); } else { job.answer(reply, true); }
+		}
+		sys::c_usleep(500);
+	}
+	job.close();
+	p.state = FAILED;
+	txt::set(&p.error, "timeout");
+	return p;
+}
+
+fn bool no_temporaries(String rel) => @pool()
+{
+	sys::Entry[64] list;
+	int n = sys::list_dir(at(rel), &list, true);
+	for (int i = 0; i < n; i++) if (txt::view(&list[i].name).starts_with(".sms-")) return false;
+	return true;
+}
+
+fn void check_fileop() => @pool()
+{
+	txt::set(&root, "/tmp/bmu-fileop-XXXXXX");
+	if (!mkdtemp(&root)) { expect(false, "fileop: mkdtemp"); return; }
+	setenv("XDG_DATA_HOME", at("data").zstr_tcopy(), 1);
+	sys::mkdirs(at("a/tree/sub"));
+	sys::mkdirs(at("b"));
+	put("a/one.txt", "one");
+	put("a/tree/x.txt", "x");
+	put("a/tree/sub/y.txt", "yy");
+	symlink("x.txt", at("a/tree/link").zstr_tcopy());
+
+	// Copy a file and a folder tree (with a symlink); sources stay.
+	fileop::Progress p = run(COPY, "a", { "one.txt", "tree" }, "b");
+	expect(p.state == DONE, "fileop: copy done");
+	expect_str(get("b/one.txt"), "one", "fileop: copied file");
+	expect_str(get("b/tree/sub/y.txt"), "yy", "fileop: copied nested file");
+	char[64] lt;
+	sz ln = readlink(at("b/tree/link").zstr_tcopy(), &lt, 63);
+	expect(ln == 5 && lt[:5] == "x.txt", "fileop: symlink copied as link");
+	expect(p.bytes_total == 6 && p.bytes_done == 6, "fileop: byte totals");
+	expect(there("a/one.txt") && there("a/tree/x.txt"), "fileop: copy keeps sources");
+	expect(no_temporaries("b"), "fileop: no temporaries after copy");
+
+	// Same-folder copy gets a "(copy)" name.
+	p = run(COPY, "a", { "one.txt" }, "a");
+	expect(p.state == DONE && get("a/one (copy).txt") == "one", "fileop: same-folder copy name");
+
+	// Conflicts: keep both, skip, replace.
+	put("a/one.txt", "new");
+	p = run(COPY, "a", { "one.txt" }, "b", KEEP_BOTH);
+	expect(p.state == DONE && get("b/one (2).txt") == "new" && get("b/one.txt") == "one", "fileop: keep both");
+	p = run(COPY, "a", { "one.txt" }, "b", SKIP);
+	expect(p.state == DONE && p.skipped == 1 && get("b/one.txt") == "one", "fileop: skip");
+	p = run(COPY, "a", { "one.txt" }, "b", REPLACE);
+	expect(p.state == DONE && get("b/one.txt") == "new", "fileop: replace file");
+	p = run(COPY, "a", { "one.txt" }, "b", cancel_on_conflict: true);
+	expect(p.state == CANCELLED && get("b/one.txt") == "new", "fileop: cancel at conflict changes nothing");
+	expect(no_temporaries("b"), "fileop: no temporaries after replace/cancel");
+
+	// Replace a folder with a file of the same name (moved aside, deleted after the commit).
+	put("a/tree2", "file now");
+	sys::mkdirs(at("b/tree2/deep"));
+	p = run(COPY, "a", { "tree2" }, "b", REPLACE);
+	expect(p.state == DONE && get("b/tree2") == "file now", "fileop: replace folder by file");
+
+	// Folder into itself and replacing an ancestor of the source are refused without changes.
+	p = run(COPY, "a", { "tree" }, "a/tree/sub");
+	expect(p.state == FAILED && !there("a/tree/sub/tree"), "fileop: refuse copy into itself");
+	sys::mkdirs(at("c/c"));
+	put("c/c/keep.txt", "k");
+	p = run(MOVE, "c/c", { "keep.txt" }, "c");
+	expect(p.state == DONE && there("c/keep.txt"), "fileop: move up");
+	put("c/c/c", "inner");
+	p = run(MOVE, "c/c", { "c" }, "c", REPLACE);
+	expect(p.state == FAILED && get("c/c/c") == "inner", "fileop: refuse replacing a folder containing the source");
+
+	// Same-filesystem move is a rename.
+	p = run(MOVE, "a", { "tree" }, "b", KEEP_BOTH);
+	expect(p.state == DONE && !there("a/tree") && get("b/tree (2)/sub/y.txt") == "yy", "fileop: move (rename)");
+
+	// Cross-filesystem move (when /dev/shm is a different filesystem): copy, sync, delete sources.
+	libc::Stat s1, s2;
+	if (libc::stat("/dev/shm", &s2) == 0 && libc::stat(txt::z(&root), &s1) == 0 && s1.st_dev != s2.st_dev)
+	{
+		char[64] other;
+		txt::set(&other, "/dev/shm/bmu-fileop-XXXXXX");
+		if (mkdtemp(&other))
+		{
+			p = run(MOVE, "b", { "tree" }, "", KEEP_BOTH);
+			expect(p.state == FAILED, "fileop: move needs a target");
+			if (job.start(MOVE, at("b"), { "tree" }, txt::view(&other)))
+			{
+				while (!job.finished(&p)) sys::c_usleep(500);
+				String moved = txt::join(txt::view(&other), "tree/sub/y.txt");
+				expect(p.state == DONE && sys::is_file(moved) && !there("b/tree"), "fileop: cross-filesystem move");
+			}
+			if (job.start(DELETE, "/dev/shm", { txt::basename(txt::view(&other)) })) { while (!job.finished(&p)) sys::c_usleep(500); }
+		}
+	}
+
+	// Cancel right after start: either finished or fully rolled back, never half.
+	sys::mkdirs(at("big"));
+	for (int i = 0; i < 40; i++) put(string::tformat("big/f%d", i), "0123456789");
+	if (job.start(COPY, at("."), { "big" }, at("b")))
+	{
+		job.cancel();
+		while (!job.finished(&p)) sys::c_usleep(500);
+		expect((p.state == CANCELLED && !there("b/big")) || (p.state == DONE && there("b/big/f39")), "fileop: cancel is all-or-nothing");
+		expect(no_temporaries("b"), "fileop: no temporaries after cancel");
+	}
+
+	// Trash (freedesktop layout under XDG_DATA_HOME) and permanent delete.
+	expect(fileop::can_trash(at("a/one.txt")), "fileop: can_trash same filesystem");
+	p = run(TRASH, "a", { "one.txt" });
+	expect(p.state == DONE && !there("a/one.txt") && get("data/Trash/files/one.txt") == "new", "fileop: trash moves file");
+	String info = get("data/Trash/info/one.txt.trashinfo");
+	expect(info.starts_with("[Trash Info]\nPath=/tmp/bmu-fileop-") && info.contains("DeletionDate="), "fileop: trashinfo written");
+	put("a/one.txt", "again");
+	p = run(TRASH, "a", { "one.txt" });
+	expect(p.state == DONE && get("data/Trash/files/one.txt.2") == "again", "fileop: trash name collision");
+	p = run(DELETE, "b", { "tree2", "one.txt" });
+	expect(p.state == DONE && p.files_done == 2 && !there("b/tree2") && !there("b/one.txt"), "fileop: delete");
+
+	expect(!job.start(COPY, "relative", { "x" }, "/tmp"), "fileop: refuse relative source");
+	expect(!job.start(COPY, "/tmp", { "a/b" }, "/tmp"), "fileop: refuse names with slash");
+	expect(!job.busy(), "fileop: idle after refusals");
+
+	if (job.start(DELETE, "/tmp", { txt::basename(txt::view(&root)) })) { while (!job.finished(&p)) sys::c_usleep(500); }
+	expect(!sys::exists(txt::view(&root)), "fileop: cleanup");
+}
