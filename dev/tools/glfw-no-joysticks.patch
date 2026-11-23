@@ -1,0 +1,17 @@
+# bmu apps never use gamepads: GLFW scanning /dev/input for joysticks costs 300+ ms at startup with many input
+# devices (raylib triggers it during InitWindow). Report no joysticks. Applied by build-raylib.sh.
+--- a/src/external/glfw/src/linux_joystick.c	2026-11-23 12:04:48.369441946 +0100
++++ b/src/external/glfw/src/linux_joystick.c	2026-11-23 12:04:48.386092761 +0100
+@@ -309,6 +309,12 @@
+ 
+ GLFWbool _glfwInitJoysticksLinux(void)
+ {
++    // bmu patch: bmu apps never use gamepads. Scanning /dev/input opens and queries every input device
++    // (300+ ms at startup with many devices); report no joysticks instead and skip hot-plug watching.
++    _glfw.linjs.inotify = -1;
++    _glfw.linjs.regexCompiled = GLFW_FALSE;
++    return GLFW_TRUE;
++
+     const char* dirname = "/dev/input";
+ 
+     _glfw.linjs.inotify = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);

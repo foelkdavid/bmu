@@ -59,7 +59,7 @@ fn void main(String[] args)
 
 | | |
 |---|---|
-| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0)` | Resizable window (VSync, MSAA 4x), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. |
+| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0)` | Resizable window (MSAA 4x; 60 FPS paced by sleeping, no vsync: on Wayland the first synced swap stalls ~0.5 s), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. |
 | `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, and once the window size has been stable for 5 frames, so a tiling WM's resize is not caught; then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
 | `fn bool running()` | `false` when the window is closed, `quit` was set, or the `--shot` was taken. |
 | `bool quit` | Set to `true` to end the loop (e.g. a Quit button). |

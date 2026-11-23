@@ -37,13 +37,15 @@ bool close_requested;   // the user tried to close while hold_close (the app cle
 <*
  Open a resizable window of w x h LOGICAL px (clamped to 90% of the monitor), set
  the UI scale (`ui_scale` > 0, else auto_scale()), load the font, map the keyboard
- layout, 60 FPS, no Esc-to-quit, raylib log level WARNING.
+ layout, 60 FPS (sleep-paced, no vsync), no Esc-to-quit, raylib log level WARNING.
 *>
 fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0) => @pool()
 {
 	base_w = w; base_h = h; min_base_w = min_w; min_base_h = min_h;
 	rl::set_trace_log_level(rl::RLTraceLogLevel.WARNING);
-	rl::set_config_flags(rl::RLConfigFlag.WINDOW_RESIZABLE | rl::RLConfigFlag.VSYNC_HINT | rl::RLConfigFlag.MSAA_4X_HINT);
+	// No VSYNC_HINT: on Wayland the first synced swap stalls ~0.5 s (compositors never tear anyway); frames are
+	// paced by set_target_fps with a sleep-only wait (bmu's raylib patch).
+	rl::set_config_flags(rl::RLConfigFlag.WINDOW_RESIZABLE | rl::RLConfigFlag.MSAA_4X_HINT);
 	rl::init_window(w, h, title.zstr_tcopy());
 	set_scale(ui_scale > 0 ? ui_scale : auto_scale());
 	fit_window(true);
