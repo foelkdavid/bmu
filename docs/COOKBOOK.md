@@ -508,6 +508,42 @@ fn void quit_guard()
 Pass `copy_progress(...) || ui::close_requested` (with your other modals) to the next `frame_begin`. On exit call
 `copier.close()`: it cancels and waits, so nothing is left half-written.
 
+## Settings dialog with shortcuts and About
+
+Ctrl+K opens a modal with a shortcut list and an About tab; the About rows are collected when the tab opens.
+
+```c3
+ui::Shortcut[*] help_rows = {
+	{ "NAVIGATION", "", true },
+	{ "Left / Right", "Previous / next", false },
+	{ "Ctrl + K", "Open / close this dialog", false },
+};
+float help_scroll;
+bool help_open;
+int help_tab;
+
+// Draw while help_open (layer 1; pass help_open to frame_begin as modal).
+fn void help_dialog()
+{
+	ui::layer = 1;
+	Rect box = ui::dialog(640, 460);
+	if (ui::dialog_header(box, ui::I_GEAR, "Settings") || rl::is_key_pressed(rl::RLKeyboardKey.ESCAPE)) help_open = false;
+	float x = box.x + 16;
+	float w = box.width - 32;
+	if (ui::button({ x, box.y + 54, w / 2 - 4, 36 }, "Shortcuts", help_tab == 0 ? PRIMARY : NORMAL)) help_tab = 0;
+	if (ui::button({ x + w / 2 + 4, box.y + 54, w / 2 - 4, 36 }, "About", help_tab == 1 ? PRIMARY : NORMAL))
+	{
+		help_tab = 1;
+		ui::about_reset("my-app", "0.1.0");
+		ui::about_add("Config", "~/.config/my-app");
+	}
+	Rect area = { x, box.y + 102, w, box.height - 118 };
+	if (help_tab == 0) { help_scroll = ui::shortcut_table(area, &help_rows, help_scroll); }
+	else { ui::about_draw(area); }
+	ui::layer = 0;
+}
+```
+
 ## Retry as administrator
 
 When a file operation fails with "permission denied" (`p.err` 13 or 1), ask for the password and run the same

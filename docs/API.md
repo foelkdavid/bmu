@@ -504,6 +504,18 @@ stable address; methods are UI-thread-only.
 Never follows symlinks; stays on the root's filesystem like `find -xdev` (one `fstat` per folder, none per file;
 `DT_UNKNOWN` entries cost one `lstat`). Debounce typing (e.g. 150 ms) and restart with `close()` + `start()`.
 
+## Shortcuts and About (`ui::`, `info.c3`)
+
+| call | does |
+|---|---|
+| `struct Shortcut { String keys; String action; bool heading; }` | one row; `heading = true` makes `keys` a section title |
+| `fn float shortcut_table(Rect area, Shortcut[] rows, float scroll)` | virtualized, scrollable list with key caps; returns the new scroll (keep it in a global) |
+| `fn void about_reset(String app, String version)` | start the About rows: version, display backend, GLFW, raylib, GPU, OpenGL, monitor, interface scale, binary path |
+| `fn void about_add(String key, String value)` | add an app row (paths, settings); up to `ABOUT_MAX` (16) rows |
+| `fn void about_draw(Rect area)` | key/value rows, long values show their end |
+
+Call `about_reset` (+ `about_add`) when the panel opens, not every frame: it queries GL strings and the monitor.
+
 ## 17. Low level: without the app layer
 
 If you manage the window yourself (or embed bmu into a raylib game):
