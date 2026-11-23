@@ -342,8 +342,8 @@ Ctrl +/−/0 are taken by `frame_begin` for zoom.
 ## 13. File picker (picker::)
 
 Module `bmu::picker`. A modal file/folder chooser drawn with bmu itself: path bar (type a path or `~/...`,
-Enter), places sidebar (Home, Downloads, File system, the shared `bmu::places`, your places, /mnt, /run/media;
-built when the picker opens, missing folders left out, scrolls when long), list (dirs first, sorted), hidden-files
+Enter), places sidebar (the shared `bmu::places`: Home, Downloads, File system, Trash, saved places; then your
+places; built when the picker opens, missing folders left out, scrolls when long), list (dirs first, sorted), hidden-files
 and all-files toggles. Double-click/Enter opens, Backspace goes up, ↑/↓ select, Esc cancels.
 
 ```c3
@@ -412,10 +412,10 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 
 ## Shared places (places::)
 
-Module `bmu::places`. Saved locations shared by every bmu app: `$XDG_CONFIG_HOME/bmu/places` (fallback
-`~/.config/bmu/places`), lines `downloads=0|1` and `place=/absolute/path`. A file manager edits the list; the
-picker reloads it on every `start()`, so its sidebar shows the same places. Each change saves at once (atomic
-rename); nothing touches the disk per frame.
+Module `bmu::places`. The sidebar shared by every bmu app: `$XDG_CONFIG_HOME/bmu/places` (fallback
+`~/.config/bmu/places`), lines `downloads=0|1`, `trash=0|1`, `place=/absolute/path`. Only a file manager writes
+it; the picker reloads it on every `start()`, so its sidebar matches. Without the file: Home, Downloads,
+File system, Trash, no saved places. Each change saves at once (atomic rename); nothing touches the disk per frame.
 
 | | |
 |---|---|
@@ -425,7 +425,8 @@ rename); nothing touches the disk per frame.
 | `fn bool add(String p)` | Append an absolute path (no newlines, < 4096 bytes) and save; true when present afterwards (duplicates count). False when full (32) or invalid. |
 | `fn void remove(int i)` | Remove and save. |
 | `bool downloads`, `fn void set_downloads(bool on)` | Show the pinned Downloads entry (default true); the setter saves. |
-| `fn String downloads_path()` | `~/Downloads` (temp). |
+| `bool trash`, `fn void set_trash(bool on)` | Show the Trash entry (default true); the setter saves. |
+| `fn String downloads_path()`, `fn String trash_path()` | `~/Downloads`; `$XDG_DATA_HOME/Trash/files` (fallback `~/.local/share/...`) (temp). |
 | `fn String file_path()` | The file's path (temp). |
 
 ## 16. Limits

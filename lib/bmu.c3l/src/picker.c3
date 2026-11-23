@@ -40,7 +40,7 @@ double last_click;
 int last_click_idx = -1;
 char[1024] last_dir;  // folder of the last confirmed pick (persist it if you like)
 
-// Sidebar places added by the app (shown after the shared bmu::places, before /mnt).
+// Sidebar places added by the app (shown after the shared bmu::places).
 struct Place
 {
 	char[64] name;
@@ -68,7 +68,7 @@ struct Row
 	String icon;
 	bool divider;     // a line above this row
 }
-const MAX_ROWS = 4 + places::MAX + MAX_PLACES + 2;
+const MAX_ROWS = 4 + places::MAX + MAX_PLACES;
 Row[MAX_ROWS] rows;
 int row_count;
 float side_scroll;
@@ -83,8 +83,8 @@ fn void add_row(String icon, String name, String path, bool divider = false)
 	r.divider = divider;
 }
 
-<* Home, Downloads (unless hidden in bmu::places), File system, the shared places, the app's places, /mnt,
-   /run/media: the same order a bmu file manager shows. *>
+<* The shared sidebar (bmu::places): Home, Downloads, File system, Trash (each unless hidden there), the saved
+   places, then the app's own places. For choosing only: the trash is a plain folder here. *>
 fn void build_rows() => @pool()
 {
 	row_count = 0;
@@ -93,6 +93,7 @@ fn void build_rows() => @pool()
 	add_row(ui::I_HOME, "Home", sys::home());
 	if (places::downloads) add_row(ui::I_DOWNLOAD, "Downloads", places::downloads_path());
 	add_row(ui::I_HDD, "File system", "/");
+	if (places::trash) add_row(ui::I_TRASH, "Trash", places::trash_path());
 	int first = row_count;
 	for (int i = 0; i < places::count; i++)
 	{
@@ -100,9 +101,6 @@ fn void build_rows() => @pool()
 		add_row(ui::I_FOLDER, p == "/" ? "/" : txt::basename(p), p, row_count == first);
 	}
 	for (int i = 0; i < place_count; i++) add_row(place_list[i].icon, txt::view(&place_list[i].name), txt::view(&place_list[i].path), row_count == first);
-	int mounts = row_count;
-	add_row(ui::I_HDD, "/mnt", "/mnt", true);
-	add_row(ui::I_HDD, "/run/media", "/run/media", row_count == mounts);
 }
 
 <* Add a sidebar place. Folders that do not exist are hidden when drawing. *>

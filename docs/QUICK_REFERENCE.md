@@ -122,7 +122,7 @@ fn void main(String[] args)
 | `take(&why, &path) -> bool` | true once after a pick; `why` = your purpose constant |
 | `last_dir`, `add_place(icon, name, path)`, `clear_places()`, `set_ext_icon(ext, icon)` | last folder used; sidebar entries; per-extension list icon |
 | **places** (`places::`) | |
-| `load()`, `count`, `path(i)`, `add(p)`, `remove(i)`, `downloads`, `set_downloads(on)`, `downloads_path()` | saved locations shared by all bmu apps (`~/.config/bmu/places`); the picker's sidebar shows them; changes save at once |
+| `load()`, `count`, `path(i)`, `add(p)`, `remove(i)`, `downloads`/`trash`, `set_downloads(on)`/`set_trash(on)`, `downloads_path()`/`trash_path()` | the sidebar shared by all bmu apps (`~/.config/bmu/places`, written only by a file manager; defaults without it); the picker shows it; changes save at once |
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
