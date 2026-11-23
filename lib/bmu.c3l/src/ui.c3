@@ -323,6 +323,7 @@ fn void sync_click_modifiers() @private
 
 fn void begin_frame()
 {
+	input_arrows_free = false;
 	cursor = DEFAULT;
 	consumed = false;
 	now = rl::get_time();
@@ -474,6 +475,7 @@ fn bool checkbox(float x, float y, String label, bool* v, String hint = "")
 // Selection is [min(anchor, caret), max(anchor, caret)).
 
 int focus = -1;     // id of the focused input
+bool input_arrows_free; // set before ui::input to keep Up/Down for the app (suggestion lists); reset every frame
 usz caret;
 usz anchor;
 double caret_blink;
@@ -550,6 +552,15 @@ fn bool ctrl_down() => click_ctrl || rl::is_key_down(rl::RLKeyboardKey.LEFT_CONT
 fn bool shift_down() => click_shift || rl::is_key_down(rl::RLKeyboardKey.LEFT_SHIFT) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_SHIFT);
 
 fn bool has_sel() => anchor != caret;
+
+<* Replace an input's text (e.g. accept a completion) and put the caret at the end. *>
+fn void input_replace(char[] buf, String s)
+{
+	txt::set(buf, s);
+	caret = txt::view(buf).len;
+	anchor = caret;
+	caret_blink = now;
+}
 fn usz sel_lo() => anchor < caret ? anchor : caret;
 fn usz sel_hi() => anchor < caret ? caret : anchor;
 
@@ -782,8 +793,8 @@ fn bool input(int id, Rect r, char[] buf, String placeholder = "", bool* submitt
 			if (has_sel() && !shift) { target = sel_hi(); } else { target = ctrl ? word_right(buf, caret) : next_char(buf, caret); }
 			moved = true;
 		}
-		if (rl::is_key_pressed(rl::RLKeyboardKey.HOME) || rl::is_key_pressed(rl::RLKeyboardKey.UP)) { target = 0; moved = true; }
-		if (rl::is_key_pressed(rl::RLKeyboardKey.END) || rl::is_key_pressed(rl::RLKeyboardKey.DOWN)) { target = txt::view(buf).len; moved = true; }
+		if (rl::is_key_pressed(rl::RLKeyboardKey.HOME) || (!input_arrows_free && rl::is_key_pressed(rl::RLKeyboardKey.UP))) { target = 0; moved = true; }
+		if (rl::is_key_pressed(rl::RLKeyboardKey.END) || (!input_arrows_free && rl::is_key_pressed(rl::RLKeyboardKey.DOWN))) { target = txt::view(buf).len; moved = true; }
 		if (moved)
 		{
 			caret = target;

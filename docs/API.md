@@ -235,6 +235,13 @@ per character with a lock icon. Typing and paste append; Backspace, Ctrl+Backspa
 `submitted`. No caret movement, selection, copy or undo history: the secret lives only in `buf`.
 `fn void wipe(char[] buf)` zeroes a buffer with `explicit_bzero` (not optimized away): call it when the dialog closes.
 
+### Completions under an input
+
+`bool input_arrows_free` — set it right before `ui::input(...)` to leave Up/Down to the app (normally they jump to
+start/end), e.g. to move through a suggestion list drawn under the field. Reset every frame.
+`fn void input_replace(char[] buf, String s)` — replace the text and put the caret at the end (accepting a
+completion while the field keeps focus).
+
 ## 8. Dropdown and context menu
 
 ```c3

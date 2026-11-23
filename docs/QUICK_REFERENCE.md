@@ -102,6 +102,7 @@ fn void main(String[] args)
 | `icon_button(r, icon, color=FG4, tip="") -> bool` | square icon, hover background, tooltip |
 | `checkbox(x, y, label, &flag, hint="") -> bool` | toggles `flag`; true when toggled; 24 px tall |
 | `input(id, r, &buf, placeholder="", &submitted=null, icon="") -> bool` | one-line editor; true when text changed; `submitted` set on Enter |
+| `input_arrows_free`, `input_replace(&buf, s)` | keep Up/Down for a suggestion list / replace text, caret to end |
 | `secret_input(id, r, &buf, placeholder, &submitted) -> bool`, `wipe(&buf)` | password field (bullets, no copy/undo) / zero a buffer for good |
 | `dropdown(id, r, items, &sel) -> bool` | `String[] items`, `int sel`; true the frame after a choice |
 | `menu_open(id, x=-1, y=-1)`; `if (menu_begin(id, w=240)) { menu_item(label, icon="", keys="", enabled=true) -> bool; menu_sep(); menu_end(); }` | right-click menu; draw it after the other widgets; owns input while open |
