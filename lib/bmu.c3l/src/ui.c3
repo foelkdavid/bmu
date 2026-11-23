@@ -282,11 +282,43 @@ fn float auto_scale()
 	return math::clamp(math::round((float)mh / 1440 * 4) / 4, 1.0f, 2.5f);
 }
 
+// Modifier state straight from X11 on click frames. raylib only learns Ctrl/Shift from key events sent to
+// its window, so a modifier pressed while another window had focus (focus-follows-mouse, a click that
+// focuses the window) would be missed; on press/release frames the real state is asked once.
+extern fn void* glfw_current_context() @cname("glfwGetCurrentContext") @private;
+extern fn void* glfw_x11_display() @cname("glfwGetX11Display") @private;
+extern fn ulong glfw_x11_window(void* window) @cname("glfwGetX11Window") @private;
+extern fn CInt x_query_pointer(void* display, ulong window, ulong* root, ulong* child, CInt* root_x, CInt* root_y, CInt* win_x, CInt* win_y, CUInt* mask) @cname("XQueryPointer") @private;
+bool click_ctrl;
+bool click_shift;
+
+fn void sync_click_modifiers() @private
+{
+	click_ctrl = false;
+	click_shift = false;
+	bool click;
+	for (int b = 0; b < 3; b++)
+	{
+		if (rl::is_mouse_button_pressed((rl::RLMouseButton)b) || rl::is_mouse_button_released((rl::RLMouseButton)b)) click = true;
+	}
+	if (!click) return;
+	void* window = glfw_current_context();
+	void* display = glfw_x11_display();
+	if (!window || !display) return;
+	ulong root, child;
+	CInt rx, ry, wx, wy;
+	CUInt mask;
+	if (!x_query_pointer(display, glfw_x11_window(window), &root, &child, &rx, &ry, &wx, &wy, &mask)) return;
+	click_shift = (mask & 1) != 0; // ShiftMask
+	click_ctrl = (mask & 4) != 0;  // ControlMask
+}
+
 fn void begin_frame()
 {
 	cursor = DEFAULT;
 	consumed = false;
 	now = rl::get_time();
+	sync_click_modifiers();
 	layer = 0;
 	if (popup_open) { top = POPUP_LAYER; } else if (menu_id >= 0) { top = MENU_LAYER; }
 }
@@ -501,8 +533,8 @@ fn int zoom_step()
 }
 
 fn bool letter(char c) => rl::is_key_pressed((rl::RLKeyboardKey)letter_keys[c - 'a']);
-fn bool ctrl_down() => rl::is_key_down(rl::RLKeyboardKey.LEFT_CONTROL) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_CONTROL);
-fn bool shift_down() => rl::is_key_down(rl::RLKeyboardKey.LEFT_SHIFT) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_SHIFT);
+fn bool ctrl_down() => click_ctrl || rl::is_key_down(rl::RLKeyboardKey.LEFT_CONTROL) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_CONTROL);
+fn bool shift_down() => click_shift || rl::is_key_down(rl::RLKeyboardKey.LEFT_SHIFT) || rl::is_key_down(rl::RLKeyboardKey.RIGHT_SHIFT);
 
 fn bool has_sel() => anchor != caret;
 fn usz sel_lo() => anchor < caret ? anchor : caret;
