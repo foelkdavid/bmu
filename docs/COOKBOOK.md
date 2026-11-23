@@ -575,6 +575,26 @@ fn void admin_dialog(String error, fileop::Job* job, String src_dir, String[] na
 }
 ```
 
+## App icon
+
+On Wayland a window has no icon of its own: the shell (taskbar, switcher, launcher) matches the window's app_id to
+`<app_id>.desktop` and shows that file's `Icon=`. `ui::open` sends `app_id` (default: the title), so name the
+.desktop file after it and install a scalable icon of the same name:
+
+```ini
+[Desktop Entry]
+Type=Application
+Name=myapp
+Exec=myapp %f
+Icon=myapp
+StartupWMClass=myapp
+Terminal=false
+```
+
+Install `assets/myapp.svg` to `~/.local/share/icons/hicolor/scalable/apps/myapp.svg` and the entry to
+`~/.local/share/applications/myapp.desktop`, then run `gtk-update-icon-cache -q -t ~/.local/share/icons/hicolor`
+(if present). A title that isn't a plain name (`"My App"`) needs `ui::open("My App", ..., app_id: "myapp")`.
+
 ## Putting it together
 
 ```c3

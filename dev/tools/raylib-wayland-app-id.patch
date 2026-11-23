@@ -1,0 +1,26 @@
+# GLFW sends an empty Wayland app_id unless GLFW_WAYLAND_APP_ID is hinted, and raylib resets the hints inside
+# InitWindow, so shells can't match the window to its .desktop file (no icon). Adds a global rlWaylandAppId that
+# InitPlatform applies as that hint (bmu's ui::open sets it). Applied by build-raylib.sh.
+diff --git a/src/platforms/rcore_desktop_glfw.c b/src/platforms/rcore_desktop_glfw.c
+index 9b6881d..3ce7d04 100644
+--- a/src/platforms/rcore_desktop_glfw.c
++++ b/src/platforms/rcore_desktop_glfw.c
+@@ -1436,6 +1436,10 @@ static void DeallocateWrapper(void *block, void *user)
+ }
+ 
+ // Initialize platform: graphics, inputs and more
++// bmu patch: Wayland app_id (xdg_toplevel.set_app_id) for the window; set before InitWindow. Desktop shells match
++// it to <app_id>.desktop for the taskbar/switcher icon. Empty = GLFW default (no app_id).
++char rlWaylandAppId[256] = { 0 };
++
+ int InitPlatform(void)
+ {
+     glfwSetErrorCallback(ErrorCallback);
+@@ -1459,6 +1463,7 @@ int InitPlatform(void)
+     // Initialize graphic device: display/window and graphic context
+     //----------------------------------------------------------------------------
+     glfwDefaultWindowHints();                       // Set default windows hints
++    if (rlWaylandAppId[0] != 0) glfwWindowHintString(GLFW_WAYLAND_APP_ID, rlWaylandAppId); // bmu patch: Wayland app_id
+     //glfwWindowHint(GLFW_RED_BITS, 8);             // Framebuffer red color component bits
+     //glfwWindowHint(GLFW_GREEN_BITS, 8);           // Framebuffer green color component bits
+     //glfwWindowHint(GLFW_BLUE_BITS, 8);            // Framebuffer blue color component bits

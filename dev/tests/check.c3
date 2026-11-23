@@ -32,6 +32,7 @@ fn int main(String[] args)
 	check_find();
 	check_elevated();
 	check_archive();
+	check_app_id();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 	return 0;
@@ -155,4 +156,16 @@ fn void check_edit()
 	txt::set(&tiny, "ab");
 	ui::caret = 2;
 	expect(!ui::insert_byte(&tiny, 'c'), "insert_byte refuses when full");
+}
+
+fn void check_app_id() => @pool()
+{
+	ui::set_app_id("myapp");
+	expect_str(txt::view(&ui::wayland_app_id), "myapp", "app_id reaches the raylib hint");
+	char[300] long_id;
+	long_id[..] = 'x';
+	ui::set_app_id((String)long_id[..]);
+	expect(txt::view(&ui::wayland_app_id).len == 255, "app_id cut to 255 bytes");
+	ui::set_app_id("");
+	expect(txt::empty(&ui::wayland_app_id), "app_id cleared");
 }

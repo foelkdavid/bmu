@@ -33,15 +33,19 @@ int stable_frames;      // frames since the window was last resized (a tiling WM
 bool quit;              // set to true to leave the loop (running() returns false)
 bool hold_close;        // the window's close button does not quit: it sets close_requested instead
 bool close_requested;   // the user tried to close while hold_close (the app clears it, e.g. after asking)
+extern char[256] wayland_app_id @cname("rlWaylandAppId"); // bmu raylib patch: GLFW_WAYLAND_APP_ID hint
 
 <*
  Open a resizable window of w x h LOGICAL px (clamped to 90% of the monitor), set
  the UI scale (`ui_scale` > 0, else auto_scale()), load the font, map the keyboard
  layout, 60 FPS (sleep-paced, no vsync), no Esc-to-quit, raylib log level WARNING.
+ `app_id` is the Wayland app_id (default: `title`): shells match it to `<app_id>.desktop` for the
+ window's taskbar / switcher icon, so make it the .desktop file's name.
 *>
-fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0) => @pool()
+fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0, String app_id = "") => @pool()
 {
 	base_w = w; base_h = h; min_base_w = min_w; min_base_h = min_h;
+	set_app_id(app_id.len ? app_id : title);
 	rl::set_trace_log_level(rl::RLTraceLogLevel.WARNING);
 	// No VSYNC_HINT: on Wayland the first synced swap stalls ~0.5 s (compositors never tear anyway); frames are
 	// paced by set_target_fps with a sleep-only wait (bmu's raylib patch).
@@ -53,6 +57,12 @@ fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h
 	rl::set_target_fps(60);
 	load_font();
 	map_layout();
+}
+
+<* Wayland app_id for the next window (open() calls it; cut to 255 bytes). Has no effect on an open window. *>
+fn void set_app_id(String id)
+{
+	txt::set(&wayland_app_id, id);
 }
 
 <* Re-apply the minimum window size for the current scale; `resize` also sets the initial size. *>

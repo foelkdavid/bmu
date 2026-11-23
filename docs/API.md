@@ -59,7 +59,8 @@ fn void main(String[] args)
 
 | | |
 |---|---|
-| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0)` | Resizable window (MSAA 4x; 60 FPS paced by sleeping, no vsync: on Wayland the first synced swap stalls ~0.5 s), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. |
+| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0, String app_id = "")` | Resizable window (MSAA 4x; 60 FPS paced by sleeping, no vsync: on Wayland the first synced swap stalls ~0.5 s), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. `app_id` (default `title`) is the Wayland app_id: shells match it to `<app_id>.desktop` for the window's taskbar/switcher icon, so name the .desktop file after it (COOKBOOK "App icon"). |
+| `fn void set_app_id(String id)` | Wayland app_id for the next window (`open` calls it with `app_id` or `title`; cut to 255 bytes; no effect on an open window). |
 | `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, and once the window size has been stable for 5 frames, so a tiling WM's resize is not caught; then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
 | `fn bool running()` | `false` when the window is closed, `quit` was set, or the `--shot` was taken. |
 | `bool quit` | Set to `true` to end the loop (e.g. a Quit button). |
@@ -416,6 +417,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | dropdown | 64 items, 8 KB of item text |
 | context menu | 32 rows (items + separators), 4 KB of label text |
 | tooltip / toast | 255 / 511 bytes |
+| Wayland app_id | 255 bytes (longer is cut) |
 | picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |

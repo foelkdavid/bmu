@@ -76,7 +76,7 @@ fn void main(String[] args)
 | call | does |
 |---|---|
 | **app** (`ui::`) | |
-| `open(title, w=1280, h=800, min_w=800, min_h=500, ui_scale=0)` | window (logical size), scale (0 = auto), font, layout map, 60 FPS, Esc doesn't quit |
+| `open(title, w=1280, h=800, min_w=800, min_h=500, ui_scale=0, app_id="")` | window (logical size), scale (0 = auto), font, layout map, 60 FPS, Esc doesn't quit; Wayland app_id = `app_id` or `title` (match `<app_id>.desktop` for the icon) |
 | `app_args(args)` | `--shot FILE` (PNG after `--frames N`=3, then exit), `--scale S` |
 | `running()` / `quit = true` | loop condition / leave the loop |
 | `shortcut_table(area, rows, scroll) -> scroll`, `Shortcut{keys, action, heading}` | help list for settings dialogs |
