@@ -119,7 +119,7 @@ fn void main(String[] args)
 | `take(&why, &path) -> bool` | true once after a pick; `why` = your purpose constant |
 | `last_dir`, `add_place(icon, name, path)`, `clear_places()`, `set_ext_icon(ext, icon)` | last folder used; sidebar entries; per-extension list icon |
 | **image** (`image::`) | |
-| `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
+| `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
 | `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `start_elevated(..., &password)` runs it as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
 | **find** (`find::`) | |

@@ -24,6 +24,22 @@ fn void main()
 	assert(wide.pixels.width == 1600 && wide.pixels.height == 800);
 	rl::unload_image(wide.pixels);
 	assert(!loader.take(&wide));
+	// Per-loader limits: full size for a viewer, then a smaller preview edge.
+	image::Loader full;
+	defer full.close();
+	full.limits.max_edge = image::MAX_EDGE;
+	assert(full.request("dev/fixtures/image-wide.png"));
+	image::Result big = wait(&full);
+	assert(big.status == READY && big.pixels.width == 3200 && big.pixels.height == 1600);
+	rl::unload_image(big.pixels);
+	full.limits.max_edge = 400;
+	assert(full.request("dev/fixtures/image-wide.png"));
+	big = wait(&full);
+	assert(big.status == READY && big.pixels.width == 400 && big.pixels.height == 200);
+	rl::unload_image(big.pixels);
+	full.limits.max_pixels = 1000;
+	assert(full.request("dev/fixtures/image-wide.png"));
+	assert(wait(&full).status == TOO_LARGE);
 	assert(loader.request("dev/fixtures/image-too-many-pixels.png"));
 	assert(wait(&loader).status == TOO_LARGE);
 	assert(loader.request("dev/fixtures/image-edge.png"));

@@ -420,13 +420,15 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
 | recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
-| image loader | 4095-byte paths; 32 MiB compressed file; 32,000,000 source pixels; 16384 px source edge; 1600 px preview edge; one pending request and one ready result per loader |
+| image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`); one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
 
 ## Async images (`bmu::image`)
 
 Zero-initialize `image::Loader` at a stable address; do not copy it after its first request.
+`loader.limits` (`image::Limits`: `max_edge`, `max_file_bytes`, `max_pixels`; 0 = the defaults below) can be set before
+a request: a viewer sets `max_edge = image::MAX_EDGE` for full resolution, previews keep the 1600 px default.
 All methods are called by one owning/UI thread. No window or GPU context is needed to decode.
 
 | call/type | contract |

@@ -20,8 +20,16 @@ struct Result
 }
 
 // Keep at a stable address until close(); methods are UI-thread-only.
+struct Limits
+{
+	int max_edge;          // downsample so the longer edge fits; 0 = PREVIEW_EDGE (1600), >= MAX_EDGE = full size
+	usz max_file_bytes;    // 0 = MAX_FILE_BYTES (32 MiB)
+	long max_pixels;       // source width * height; 0 = MAX_PIXELS (32,000,000)
+}
+
 struct Loader
 {
+	Limits limits;         // set before the first request (read with the request, under the lock)
 	thread::Mutex mutex;
 	thread::ConditionVariable wake;
 	thread::Thread worker;
@@ -34,7 +42,7 @@ struct Loader
 	Result result;
 }
 
-fn Result decode(String path) @private
+fn Result decode(String path, Limits lim) @private
 {
 	char[4096] filename;
 	txt::set(&filename, path);
@@ -44,7 +52,10 @@ fn Result decode(String path) @private
 	defer sys::c_close(fd);
 	libc::Stat st;
 	if (c_fstat(fd, &st) != 0 || (st.st_mode & 0xF000) != 0x8000) return { .status = READ_ERROR };
-	if (st.st_size > (long)MAX_FILE_BYTES) return { .status = TOO_LARGE };
+	usz max_file = lim.max_file_bytes ? lim.max_file_bytes : MAX_FILE_BYTES;
+	long max_pixels = lim.max_pixels ? lim.max_pixels : MAX_PIXELS;
+	int max_edge = lim.max_edge ? lim.max_edge : PREVIEW_EDGE;
+	if (st.st_size > (long)max_file) return { .status = TOO_LARGE };
 	if (st.st_size <= 0) return { .status = INVALID_IMAGE };
 	usz size = (usz)st.st_size;
 	char* bytes = libc::malloc(size);
@@ -59,7 +70,7 @@ fn Result decode(String path) @private
 	}
 	int w, h, channels;
 	if (!stbi_info_from_memory(bytes, (int)size, &w, &h, &channels) || w <= 0 || h <= 0) return { .status = INVALID_IMAGE };
-	if (w > MAX_EDGE || h > MAX_EDGE || (long)w * h > MAX_PIXELS) return { .status = TOO_LARGE };
+	if (w > MAX_EDGE || h > MAX_EDGE || (long)w * h > max_pixels) return { .status = TOO_LARGE };
 	// Explicit type avoids trusting filename case; raylib dispatches by extension.
 	String ext = ".png";
 	if (txt::iends_with(path, ".jpg") || txt::iends_with(path, ".jpeg")) { ext = ".jpg"; }
@@ -70,10 +81,10 @@ fn Result decode(String path) @private
 	rl::RLImage pixels = rl::load_image_from_memory(txt::z(&kind), bytes, (int)size);
 	if (!pixels.data) return { .status = INVALID_IMAGE };
 	int edge = w > h ? w : h;
-	if (edge > PREVIEW_EDGE)
+	if (edge > max_edge)
 	{
-		int pw = (int)((long)w * PREVIEW_EDGE / edge);
-		int ph = (int)((long)h * PREVIEW_EDGE / edge);
+		int pw = (int)((long)w * max_edge / edge);
+		int ph = (int)((long)h * max_edge / edge);
 		rl::image_resize(&pixels, pw > 0 ? pw : 1, ph > 0 ? ph : 1);
 	}
 	return { READY, pixels, w, h };
@@ -88,10 +99,11 @@ fn int work(void* arg) @private
 		while (!self.pending && !self.stopping) self.wake.wait(&self.mutex);
 		if (self.stopping) { self.mutex.unlock(); return 0; }
 		char[4096] path = self.path;
+		Limits lim = self.limits;
 		ulong generation = self.generation;
 		self.pending = false;
 		self.mutex.unlock();
-		Result result = decode(txt::view(&path));
+		Result result = decode(txt::view(&path), lim);
 		self.mutex.lock();
 		if (generation == self.generation && !self.stopping)
 		{
