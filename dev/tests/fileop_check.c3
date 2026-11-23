@@ -190,6 +190,10 @@ fn void check_fileop() => @pool()
 	expect(p.state == FAILED, "fileop: restore without record fails");
 	put("r/sp ace%.txt", "s");
 	p = run(TRASH, "r", { "sp ace%.txt" });
+	char[4096] origin;
+	char[32] when;
+	expect(fileop::trash_info(at("data/Trash/files"), "sp ace%.txt", &origin, &when) && txt::view(&origin) == at("r/sp ace%.txt") && txt::view(&when).len == 19 && when[10] == ' ', "fileop: trash_info path and date");
+	expect(!fileop::trash_info(at("data/Trash/files"), "nope", &origin), "fileop: trash_info missing record");
 	p = run(RESTORE, "data/Trash/files", { "sp ace%.txt" });
 	expect(p.state == DONE && get("r/sp ace%.txt") == "s", "fileop: restore decodes percent-encoding");
 

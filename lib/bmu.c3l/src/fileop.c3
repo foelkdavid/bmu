@@ -934,23 +934,25 @@ fn int hex(char c) @private
 	return -1;
 }
 
-<* Original absolute path from the item's .trashinfo (Path= is percent-encoded). *>
-fn bool read_origin(Job* j, String name, char[] out) @private
+<* Read `<trash>/info/NAME.trashinfo`: 0 ok, 1 no record, 2 unreadable, 3 no Path=, 4 invalid, 5 relative path. *>
+fn int load_info(String files_dir, String name, char[] path, char[] date) @private
 {
 	char[4096] info;
-	if (!info_path(j, name, &info)) { *c_errno() = 0; return fail(j, "Path too long", name); }
+	usz il;
+	if (!set_path(&info, &il, txt::dirname(files_dir), "info") || !push(&info, &il, name) || il + 11 >= info.len) return 4;
+	txt::append(&info, ".trashinfo");
 	CInt fd = sys::c_open(zp(&info), O_RDONLY | O_CLOEXEC);
-	if (fd < 0) return fail(j, "No restore information for", name);
+	if (fd < 0) return 1;
 	char[16384] text;
 	sz n = c_read(fd, &text, text.len - 1);
 	sys::c_close(fd);
-	if (n < 0) return fail(j, "Cannot read the restore information for", name);
+	if (n < 0) return 2;
 	String body = (String)text[:(usz)n];
 	sz? at = body.index_of("\nPath=");
 	usz start;
 	if (try at) { start = (usz)at + 6; }
 	else if (body.starts_with("Path=")) { start = 5; }
-	else { *c_errno() = 0; return fail(j, "No original path recorded for", name); }
+	else { return 3; }
 	usz k;
 	for (usz i = start; i < body.len && body[i] != '\n' && body[i] != '\r'; i++)
 	{
@@ -960,13 +962,48 @@ fn bool read_origin(Job* j, String name, char[] out) @private
 			c = (char)(hex(body[i + 1]) * 16 + hex(body[i + 2]));
 			i += 2;
 		}
-		if (k + 1 >= out.len || c == 0) { *c_errno() = 0; return fail(j, "Invalid original path for", name); }
-		out[k++] = c;
+		if (k + 1 >= path.len || c == 0) return 4;
+		path[k++] = c;
 	}
-	out[k] = 0;
+	path[k] = 0;
 	// Per-volume trashes may store relative paths; only the home trash (absolute paths) is supported.
-	if (!k || out[0] != '/') { *c_errno() = 0; return fail(j, "Unsupported original path for", name); }
-	return true;
+	if (!k || path[0] != '/') return 5;
+	if (date.len)
+	{
+		date[0] = 0;
+		sz? d = body.index_of("\nDeletionDate=");
+		if (try d)
+		{
+			usz m;
+			for (usz i = (usz)d + 14; i < body.len && body[i] != '\n' && body[i] != '\r' && m + 1 < date.len; i++) date[m++] = body[i] == 'T' ? ' ' : body[i];
+			date[m] = 0;
+		}
+	}
+	return 0;
+}
+
+<*
+ Where a trashed item came from: `files_dir` is the trash's `files/` folder, `name` the entry in it. Fills `path`
+ (absolute, decoded) and, when given, `date` ("YYYY-MM-DD hh:mm:ss"). One small file read: call it on an event
+ such as a hover change, not every frame.
+*>
+fn bool trash_info(String files_dir, String name, char[] path, char[] date = {})
+{
+	return load_info(files_dir, name, path, date) == 0;
+}
+
+fn bool read_origin(Job* j, String name, char[] out) @private
+{
+	*c_errno() = 0;
+	switch (load_info(txt::view(&j.src_dir), name, out, {}))
+	{
+		case 0: return true;
+		case 1: return fail(j, "No restore information for", name);
+		case 2: return fail(j, "Cannot read the restore information for", name);
+		case 3: return fail(j, "No original path recorded for", name);
+		case 5: return fail(j, "Unsupported original path for", name);
+		default: return fail(j, "Invalid original path for", name);
+	}
 }
 
 <* mkdir -p for a restore target's parent (4095-byte paths). *>

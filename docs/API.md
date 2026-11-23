@@ -445,6 +445,7 @@ no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all me
 | `job.close()` | Cancel and wait (blocks during rollback). Call on shutdown. |
 | `fileop::can_trash(String path) -> bool` | Same filesystem as the home trash (one `lstat` + `stat`): call on the key press, not per frame. |
 | `fileop::trash_dir(char[] out)` | `$XDG_DATA_HOME/Trash`, default `~/.local/share/Trash`. |
+| `fileop::trash_info(String files_dir, String name, char[] path, char[] date = {}) -> bool` | Where a trashed item came from: reads `info/NAME.trashinfo` next to `files_dir`, fills the decoded absolute `path` and optionally `date` ("YYYY-MM-DD hh:mm:ss"). One small file read: call on an event (hover change), not per frame. |
 | `fileop::State` | `IDLE`, `SCANNING` (planning + counting), `CONFLICT` (waiting for `answer`), `RUNNING`, `FINISHING` (commit or rollback, not cancellable), `DONE`, `CANCELLED`, `FAILED`. |
 
 How it stays safe (COPY / MOVE are all-or-nothing):

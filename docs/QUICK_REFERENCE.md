@@ -118,7 +118,7 @@ fn void main(String[] args)
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
-| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)` |
+| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)` |
 | **txt** (`txt::`) — `char[]` buffers | |
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |
