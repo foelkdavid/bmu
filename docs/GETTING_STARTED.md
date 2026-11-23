@@ -89,4 +89,4 @@ Build and look at it without clicking around: `./build/my-app --shot out.png` sa
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md): all calls on one page.
 - [COOKBOOK.md](COOKBOOK.md): forms, lists, dialogs, tabs, the file picker, settings files, shortcuts, drag & drop.
 - [CONCEPTS.md](CONCEPTS.md): layers, logical pixels, ids.
-- sms (`../sms`) is a minimal file explorer built on bmu.
+- Apps built on bmu live in `../`: sms (file explorer), dzi (image viewer), mzp (PDF viewer), botexe (Proton launcher).

@@ -32,7 +32,7 @@ while (ui::running())
 c3c build example-gallery && ./build/example-gallery
 c3c build bmu-check && ./build/bmu-check      # headless tests
 dev/tools/check-docs.sh                               # every code block in docs/ compiles
-tools/new-app.sh ../my-app "My App"              # new app with bmu as a submodule
+tools/new-app.sh ../my-app "My App"     # new app with bmu as a submodule
 ```
 
 Documentation: [docs/README.md](docs/README.md). Start with [GETTING_STARTED](docs/GETTING_STARTED.md), keep
