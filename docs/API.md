@@ -401,8 +401,29 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | picker | 4096 entries per folder, 8 filter extensions, 16 places, 16 extension icons, 1023-byte paths |
 | glyphs | baked set only (§2); 1024 codepoints total |
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
+| image loader | 4095-byte paths; 32 MiB compressed file; 32,000,000 source pixels; 16384 px source edge; 1600 px preview edge; one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
+
+## Async images (`bmu::image`)
+
+Zero-initialize `image::Loader` at a stable address; do not copy it after its first request.
+All methods are called by one owning/UI thread. No window or GPU context is needed to decode.
+
+| call/type | contract |
+|---|---|
+| `loader.request(String path) -> bool` | Cancel previous work/result, copy path, lazily start worker. False for empty/oversized path or worker initialization failure. PNG, JPEG, BMP, GIF; filename extensions are case-insensitive. |
+| `loader.take(image::Result* out) -> bool` | Poll once per frame; true transfers ownership of one result. On `READY`, unload `out.pixels` exactly once with `rl::unload_image`; `width`/`height` are original dimensions. |
+| `loader.cancel()` | Invalidate in-flight work, clear pending request and unclaimed result. Does not wait for decoding. |
+| `loader.close()` | Cancel, join worker, free unclaimed pixels; idempotent, reusable afterwards. May block on in-flight file I/O/decode. |
+| `image::Status` | `READY`, `READ_ERROR`, `INVALID_IMAGE`, `TOO_LARGE`, `NO_MEMORY` (compressed-input allocation failure). |
+
+The worker reads regular files, checks headers before decoding, then downsamples preserving aspect ratio.
+GIF uses the first frame; no EXIF rotation. Latest request wins; stale results are freed without delivery.
+Upload textures on the UI thread only. No thumbnails or global cache. Full source bitmap, decoder workspace,
+and resize buffers are temporary: the preview limit is **not** a total-memory cap. Decoder allocation failure
+may report `INVALID_IMAGE`; `NO_MEMORY` only identifies the loader's own input allocation failure.
+Headers and decoding use the stb_image symbols from the bundled raylib static archive.
 
 ## 17. Low level: without the app layer
 

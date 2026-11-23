@@ -1,7 +1,7 @@
 # bmu quick reference (one page)
 
 The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
-Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`; raylib is `rl::`.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::image`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
@@ -114,6 +114,8 @@ fn void main(String[] args)
 | `open`, `draw()` | is it showing / draw it on layer 1 |
 | `take(&why, &path) -> bool` | true once after a pick; `why` = your purpose constant |
 | `last_dir`, `add_place(icon, name, path)`, `clear_places()`, `set_ext_icon(ext, icon)` | last folder used; sidebar entries; per-extension list icon |
+| **image** (`image::`) | |
+| `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **txt** (`txt::`) — `char[]` buffers | |
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |

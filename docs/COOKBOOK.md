@@ -7,7 +7,7 @@ last recipe runs a small app that uses most of them: copy freely.
 module cookbook;
 import std::io, std::math, std::core::string, std::core::dstring;
 import raylib6::rl;
-import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::image;
 ```
 
 ## Labelled form fields with a Browse button
@@ -336,6 +336,50 @@ fn void draw_preview(Rect r) => @pool()
 	}
 	ui::panel(r, ui::BG1, 8);
 	ui::tile({ r.x + 4, r.y + 4, r.width - 8, r.height - 8 }, preview.id ? &preview : null, txt::basename(want));
+}
+```
+
+## Async image preview
+
+For interactive selection use a worker instead of the synchronous tile recipe above.
+Request only when selection changes; poll in the frame loop, upload on the UI thread,
+and close the loader before destroying its storage. Source/preview limits and blocking-close caveats: API.md.
+
+```c3
+image::Loader loader;
+rl::RLTexture2D texture;
+
+fn void select_image(String path)
+{
+	if (texture.id) rl::unload_texture(texture);
+	texture = {};
+	if (!loader.request(path)) return; // show an application error
+}
+
+fn void poll_image()
+{
+	image::Result result;
+	if (!loader.take(&result)) return;
+	if (result.status != READY) return; // show an application error
+	defer rl::unload_image(result.pixels);
+	texture = rl::load_texture_from_image(result.pixels);
+}
+
+fn void async_preview_example()
+{
+	rl::init_window(800, 600, "Async preview");
+	defer rl::close_window();
+	defer loader.close();
+	defer { if (texture.id) rl::unload_texture(texture); }
+	select_image("example.png");
+	while (!rl::window_should_close())
+	{
+		poll_image();
+		rl::begin_drawing();
+		rl::clear_background(rl::BLACK);
+		if (texture.id) rl::draw_texture(texture, 0, 0, rl::WHITE);
+		rl::end_drawing();
+	}
 }
 ```
 
