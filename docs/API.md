@@ -159,7 +159,7 @@ Transparent variants: `{ ui::AQUA.r, ui::AQUA.g, ui::AQUA.b, 70 }`.
 | `float dpi` | Compositor scale of the window's output (Wayland fractional scale, e.g. 1.5), window px → physical px. 1 until the compositor sends it (first frames). |
 | `float px` | `scale * dpi`: logical → physical framebuffer px. Use it for texture/thumbnail/render sizes and 1:1 image display. |
 | `bool dpi_changed` | True for the frame in which `dpi` changed (first frames, or the window moved to another output). |
-| `bool scale_auto` | `scale` came from `auto_scale()` (`open` with `ui_scale` 0, or Ctrl+0); `frame_begin` re-picks it when `dpi` changes. |
+| `bool scale_auto` | `scale` came from `auto_scale()` (`open` with `ui_scale` 0, or Ctrl+0); `frame_begin` re-picks it (and the min size, never the window size) when `dpi` changes. |
 | `fn void set_scale(float s)` | Clamp and apply (also `px` and mouse scaling). Prefer `zoom()` inside the loop. |
 | `fn void sync_dpi()` | Re-read `dpi` from the window (`begin_frame` calls it). Needs `FLAG_WINDOW_HIGHDPI` (`open` sets it). |
 | `fn float auto_scale()` | By monitor height in compositor px (physical / `dpi`): 1.0 up to 1440, steps of 0.25 above (2160 at dpi 1 → 1.5; 2160 at dpi 1.5 → 1.0), max 2.5. |

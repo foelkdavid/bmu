@@ -128,7 +128,9 @@ fn void frame_begin(bool modal = false)
 	if (dpi_changed && scale_auto)
 	{
 		set_scale(auto_scale());
-		fit_window(frame_count < 10); // resize only right after opening, never under the user later
+		// Min size only: a size request on a mapped Wayland window overrides the compositor's tile/configure size
+		// (GLFW resizes the buffer right away), leaving the window smaller than its slot.
+		fit_window(false);
 	}
 	if (!popup_open && menu_id < 0) top = modal ? 1 : 0;
 	zoom_changed = false;
