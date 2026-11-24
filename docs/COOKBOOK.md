@@ -5,9 +5,9 @@ last recipe runs a small app that uses most of them: copy freely.
 
 ```c3
 module cookbook;
-import std::io, std::math, std::core::string, std::core::dstring;
+import std::io, std::math, std::core::string, std::core::dstring, std::atomic;
 import raylib6::rl;
-import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::places, bmu::image, bmu::fileop;
+import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::places, bmu::image, bmu::fileop, bmu::audio;
 ```
 
 ## Labelled form fields with a Browse button
@@ -440,6 +440,52 @@ fn void request_screen_sized(image::Loader* viewer, String path)
 	viewer.request(path);
 	// Draw with result.width/height (the source size), sampling the whole smaller texture.
 }
+```
+
+## Audio in, audio out: a level meter with monitoring and a volume slider
+
+`bmu::audio` runs your callback on the audio thread for every block. Keep it tiny and lock-free: it reads
+settings the UI wrote (plain floats/bools are fine) and publishes results the UI polls (an atomic, or a float).
+Open the device after the first frame so the window never waits for the sound server.
+
+```c3
+audio::Device mic_dev;                  // stable address: a global
+float mic_gain = 1.0f;                  // UI writes, audio reads
+bool mic_monitor;
+float mic_peak;                         // audio writes, UI reads and resets
+Atomic{int} mic_blocks;
+
+fn void mic_process(void* user, float* output, float* input, uint frames)
+{
+	float peak = 0;
+	for (uint i = 0; i < frames; i++)
+	{
+		float x = input[i] * mic_gain;  // 1 input channel
+		peak = math::max(peak, math::abs(x));
+		if (mic_monitor) { output[i * 2] = x; output[i * 2 + 1] = x; }   // 2 output channels, zeroed otherwise
+	}
+	if (peak > mic_peak) mic_peak = peak;
+	mic_blocks.add(1);
+}
+
+// Call once after the first frame; true when the device runs.
+fn bool mic_start() => mic_dev.open(&mic_process, null, in_channels: 1, out_channels: 2);
+
+// Draw each frame: a decaying meter, gain slider and monitor toggle.
+float mic_shown;
+fn void mic_panel(float x, float y)
+{
+	float p = mic_peak;
+	mic_peak = 0;
+	mic_shown = math::max(p, mic_shown * 0.9f);
+	ui::text(ui::I_MIC, x, y + 7, 14, ui::FG4);
+	ui::panel({ x + 22, y + 10, 160, 8 }, ui::BG1, 3);
+	ui::panel({ x + 22, y + 10, 160 * math::min(mic_shown, 1.0f), 8 }, mic_shown > 0.98f ? ui::RED : ui::GREEN, 3);
+	ui::slider({ x + 194, y, 140, 28 }, &mic_gain, 0, 2, "Gain");
+	ui::checkbox(x + 346, y + 2, "Monitor", &mic_monitor, "Hear the input (use headphones)");
+	if (!mic_dev.is_open) ui::text(txt::view(&mic_dev.error), x, y + 32, 13, ui::ORANGE);
+}
+// On exit: mic_dev.close();
 ```
 
 ## A custom widget

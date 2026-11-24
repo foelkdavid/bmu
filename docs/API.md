@@ -125,7 +125,9 @@ Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
 | `I_UNDO` | `I_SORT_UP` | `I_SORT_DOWN` | `I_DESKTOP` |
 | `I_DOWNLOAD` | `I_MUSIC` | `I_VIDEO` | `I_FILE_TEXT` |
 | `I_FILE_IMAGE` | `I_FILE_AUDIO` | `I_FILE_VIDEO` | `I_FILE_ARCHIVE` |
-| `I_FILE_CODE` | `I_FILE_PDF` | | |
+| `I_FILE_CODE` | `I_FILE_PDF` | `I_MIC` | `I_VOLUME` |
+| `I_MUTE` (speaker off) | `I_RECORD` (filled circle) | `I_PAUSE` | `I_REPEAT` (loop) |
+| `I_SLIDERS` | `I_HEADPHONES` | | |
 
 To add one: find its codepoint (e.g. on nerdfonts.com/cheat-sheet), add the `String` constant (`"\uF0C7"`: C3 escapes are `\uXXXX`, not `\u{...}`) and pass
 the codepoint to `load_font`. To add it to the library, append to `ICON_CODEPOINTS` and the `I_*` list in `ui.c3`.
@@ -192,6 +194,7 @@ if (ui::button({ x, y, 140, 40 }, "Delete", DANGER, ui::I_TRASH, has_selection))
 if (ui::icon_button({ x, y, 36, 36 }, ui::I_GEAR, ui::FG4, "Settings")) settings_open = true;
 ui::checkbox(x, y, "Show hidden", &show_hidden, "Also list dot-files");
 if (ui::section(x, y, w, "FILTERS", &filters_open, "3 on")) save_settings();   // collapsible heading
+if (ui::slider({ x, y, 160, 28 }, &volume, 0, 1.5f, "Volume")) dirty = true;   // drag / wheel
 ```
 
 | | |
@@ -200,6 +203,7 @@ if (ui::section(x, y, w, "FILTERS", &filters_open, "3 on")) save_settings();   /
 | `fn bool button(Rect r, String label, Style style = NORMAL, String icon = "", bool enabled = true)` | True on the click frame. Label and icon centred; text is 20 px when `r.height >= 44`, else 15. Disabled: greyed, never true. Label `""` + icon = icon-only button with a background. Heights: 36–40 normal, 44+ big. |
 | `fn bool icon_button(Rect r, String icon, Color color = FG4, String tip = "")` | Icon at half the rect height, hover background + tooltip. |
 | `fn bool checkbox(float x, float y, String label, bool* v, String hint = "")` | 24 px tall row (box + label); toggles `*v`, true when toggled. `hint` = tooltip. |
+| `fn bool slider(Rect r, float* v, float lo = 0, float hi = 1, String tip = "")` | Horizontal slider across `r` (4 px track centred, 14 px knob): press anywhere on it and drag to set `*v`; the wheel over it steps 1/20 of the range. Clamped to [lo, hi] (`hi < lo` runs right to left). True in frames where `*v` changed. The drag is tied to the pointer `v`, so keep it stable while dragging (a global or struct field); it keeps tracking outside `r` until the button is released. |
 | `fn bool section(float x, float y, float w, String title, bool* open, String detail = "")` | Collapsible sidebar heading, 22 px tall, `w` wide: chevron + 12 px title, `detail` right-aligned (a count). Click toggles `*open`, true when toggled; draw the section's rows only while `*open` (long lists fold away so the sections below stay in reach). |
 
 ## 7. Text input
@@ -451,6 +455,7 @@ File system, Trash, no saved places. Each change saves at once (atomic rename); 
 | font atlases | default body-size atlas + 32 LRU-cached sizes; native sizes 1–192 physical px, larger sizes scale the 192 px atlas (§2) |
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
 | archives | 65536 entries per index (implied folders included), 8 MiB of entry paths, 255-byte path components, 4095-byte paths; one index per `archive::Index`; 64 KiB read blocks; encrypted entries are not extracted |
+| audio | 32 devices listed per direction; one device per `audio::Device`; f32 samples only |
 | recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
 | image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`), optional fit box (`limits.fit_w`/`fit_h`); one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
@@ -568,6 +573,40 @@ stable address; methods are UI-thread-only.
 
 Never follows symlinks; stays on the root's filesystem like `find -xdev` (one `fstat` per folder, none per file;
 `DT_UNKNOWN` entries cost one `lstat`). Debounce typing (e.g. 150 ms) and restart with `close()` + `start()`.
+
+## Audio (`bmu::audio`)
+
+One full-duplex audio device (Linux; no raylib calls, no window needed): a real-time callback receives the input
+block and fills the output block, both interleaved 32-bit float with the same frame count. For loopers, recorders,
+synths and meters. Backend: miniaudio as bundled in raylib's static library (PulseAudio/PipeWire, ALSA, ...);
+raylib's own `InitAudioDevice` is not used. Zero-initialize `audio::Device` at a stable address (a global or the
+heap: miniaudio keeps pointers into it) and never copy it. Methods are called by one owning (UI) thread.
+
+```c3
+// sketch
+audio::Device dev;                                   // global
+fn void process(void* user, float* output, float* input, uint frames)
+{
+	for (uint i = 0; i < frames; i++) { output[i * 2] = input[i]; output[i * 2 + 1] = input[i]; }   // mono in -> stereo out
+}
+if (!dev.open(&process, null, in_channels: 1, out_channels: 2)) ui::toast(txt::view(&dev.error), ui::RED);
+```
+
+| call / field | contract |
+|---|---|
+| `alias Process = fn void(void* user, float* output, float* input, uint frames)` | Runs on the audio thread for every block: no allocation, locks, I/O, `@pool` or `ui::` calls; share state through `std::atomic` values or plain aligned floats/bools. `input` is null without input channels, `output` null without output channels; `output` arrives zeroed. Index `output[frame * out_channels + channel]`. |
+| `dev.scan(String app = "", bool offline = false) -> bool` | Start the context once (`app` names the streams in PulseAudio/PipeWire mixers) and list devices. Blocking: a few ms to ~100 ms. Call before showing a device list, again to refresh. `offline` = miniaudio's null backend (no hardware, timer-paced): for tests. |
+| `dev.input_count`, `dev.output_count`, `dev.input_name(i)`, `dev.output_name(i)`, `dev.input_default(i)`, `dev.output_default(i)` | The listed devices; names stay valid until the next `scan` or `close`; out of range gives `""`/false. Save devices by name: indexes change. |
+| `dev.open(Process p, void* user, int in_channels = 1, int out_channels = 2, int rate = 48000, int period = 256, int input = -1, int output = -1) -> bool` | Open and start (scans first if needed). 0 channels = no input / no output (not both). `input`/`output` = index from `scan`, −1 = system default. `rate` 0 = the device's own. `period` = frames per block (256 at 48 kHz = 5.3 ms). On failure false + `dev.error`. Afterwards read `rate`, `in_channels`, `out_channels`, `backend`. Opening again stops the current device first. |
+| `dev.stop()` | Stop and release the device; blocks until the callback has returned for good, so buffers it used can be freed afterwards. The context and device list stay. |
+| `dev.close()` | `stop()` + release the context; idempotent; the Device can be scanned/opened again. Call on exit. |
+| `dev.is_open`, `dev.rate`, `dev.in_channels`, `dev.out_channels`, `dev.period`, `dev.backend`, `dev.error` | State: running; actual rate / channels; requested block size; backend name (`char[64]`, e.g. "PulseAudio"); last failure text (`char[256]`). |
+
+The input is what the sound server delivers (the backend converts format, channels and rate). Round-trip latency
+(input + output buffering) is not reported: a looper that lines recordings up with playback lets the user set a
+compensation. The binding uses miniaudio 0.11.24's struct layout as compiled into `lib/raylib6.c3l` (opaque sizes
+and offsets in `audio.c3`); `bmu-check` verifies it on the null backend. Rebuilding raylib with another miniaudio
+version means re-measuring those offsets.
 
 ## Shortcuts and About (`ui::`, `info.c3`)
 

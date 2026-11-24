@@ -34,6 +34,7 @@ fn int main(String[] args)
 	check_archive();
 	check_app_id();
 	check_places();
+	check_audio();
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
 	return 0;

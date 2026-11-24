@@ -3,7 +3,7 @@ import std::math, std::core::string;
 import raylib6::rl;
 import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 
-// Every bmu widget on one screen: buttons, icon buttons, inputs, checkboxes,
+// Every bmu widget on one screen: buttons, icon buttons, inputs, checkboxes, a slider,
 // dropdown, scrolling list, tiles, context menu, toast, tooltip, a modal dialog and the file picker.
 //   c3c build example-gallery && ./build/example-gallery
 //   ./build/example-gallery --shot out.png [--dialog | --picker | --menu]   (screenshot for checks)
@@ -24,6 +24,7 @@ char[128] search;
 char[1024] path;
 char[256] note;
 bool opt_a = true;
+float level = 0.6f;
 bool opt_b;
 int theme;
 String[4] themes = { "Gruvbox dark", "Hard contrast", "Soft", "A rather long option name that will be cut off" };
@@ -139,6 +140,10 @@ fn void draw_main() => @pool()
 		opt_a ? "on" : "off", opt_b ? "on" : "off", (int)(ui::scale * 100 + 0.5f)), x, y, 14, ui::GRAY);
 	y += 30;
 	ui::text_tail("/a/very/long/path/that/only/shows/its/end/because/text_tail/cuts/the/front.txt", x, y, 400, 14, ui::FG4);
+	y += 28;
+	ui::text(ui::I_VOLUME, x, y + 7, 14, ui::FG4);
+	ui::slider({ x + 22, y, 200, 28 }, &level, 0, 1, "Slider: drag or wheel");
+	ui::text(string::tformat("%d%%", (int)math::round(level * 100)), x + 232, y + 6, 14, ui::GRAY);
 }
 
 fn void draw_menu() => @pool()

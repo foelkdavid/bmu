@@ -1,7 +1,7 @@
 # bmu quick reference (one page)
 
 The whole API and the rules on one page. Give this file (plus COOKBOOK.md) to an assistant writing a bmu app.
-Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::places`, `bmu::image`, `bmu::fileop`, `bmu::find`, `bmu::archive`; raylib is `rl::`.
+Language: **C3** 0.8.x. Modules: `bmu::ui`, `bmu::txt`, `bmu::sys`, `bmu::picker`, `bmu::places`, `bmu::image`, `bmu::fileop`, `bmu::find`, `bmu::archive`, `bmu::audio`; raylib is `rl::`.
 Details: [API.md](API.md). Why things work the way they do: [CONCEPTS.md](CONCEPTS.md).
 
 ## Hard rules
@@ -105,6 +105,7 @@ fn void main(String[] args)
 | `button(r, label, style=NORMAL, icon="", enabled=true) -> bool` | styles `NORMAL PRIMARY GOOD DANGER GHOST`; true on click |
 | `icon_button(r, icon, color=FG4, tip="") -> bool` | square icon, hover background, tooltip |
 | `checkbox(x, y, label, &flag, hint="") -> bool` | toggles `flag`; true when toggled; 24 px tall |
+| `slider(r, &v, lo=0, hi=1, tip="") -> bool` | drag/wheel a float in [lo, hi]; true when it changed; `v` must be a stable pointer |
 | `section(x, y, w, title, &open, detail="") -> bool` | collapsible heading (chevron, 22 px); true when toggled; draw rows only while `open` |
 | `input(id, r, &buf, placeholder="", &submitted=null, icon="") -> bool` | one-line editor; true when text changed; `submitted` set on Enter |
 | `input_arrows_free`, `input_replace(&buf, s)` | keep Up/Down for a suggestion list / replace text, caret to end |
@@ -117,7 +118,7 @@ fn void main(String[] args)
 | `focus`, `focused(id)`, `focus_on(id, &buf)`, `unfocus()` | text focus (−1 = none); focus_on selects all |
 | `letter('f')`, `ctrl_down()`, `shift_down()`, `repeat(key)` | layout-safe letter press; modifiers; press + auto-repeat |
 | `load_font(extra={})`, `map_layout()` | done by `open()`; fonts use cached native-pixel atlases (first use of a size bakes it); reload to add glyphs |
-| **colours / icons** | `BG_HARD BG BG1 BG2 BG3 BG4 FG FG4 GRAY RED GREEN YELLOW BLUE PURPLE AQUA ORANGE DIM_RED DIM_GREEN DIM_YELLOW`; `I_PLAY I_STOP I_PLUS I_FOLDER I_FOLDER_OPEN I_FILE I_GEAR I_SEARCH I_TRASH I_UP I_HOME I_HDD I_GAMEPAD I_WINDOWS I_CLOCK I_CHECK I_TIMES I_DOWN I_RIGHT I_REFRESH I_TERMINAL I_IMAGE I_WRENCH I_STEAM I_BOLT I_WARN I_INFO I_LIST I_EYE I_STAR I_EYE_OFF I_MENU I_COPY I_CUT I_PASTE I_EDIT I_BACK I_FORWARD I_LEFT I_GRID I_BOOKMARK I_LINK I_LOCK I_EXTERNAL I_UNDO I_SORT_UP I_SORT_DOWN I_DESKTOP I_DOWNLOAD I_MUSIC I_VIDEO I_FILE_TEXT I_FILE_IMAGE I_FILE_AUDIO I_FILE_VIDEO I_FILE_ARCHIVE I_FILE_CODE I_FILE_PDF` |
+| **colours / icons** | `BG_HARD BG BG1 BG2 BG3 BG4 FG FG4 GRAY RED GREEN YELLOW BLUE PURPLE AQUA ORANGE DIM_RED DIM_GREEN DIM_YELLOW`; `I_PLAY I_STOP I_PLUS I_FOLDER I_FOLDER_OPEN I_FILE I_GEAR I_SEARCH I_TRASH I_UP I_HOME I_HDD I_GAMEPAD I_WINDOWS I_CLOCK I_CHECK I_TIMES I_DOWN I_RIGHT I_REFRESH I_TERMINAL I_IMAGE I_WRENCH I_STEAM I_BOLT I_WARN I_INFO I_LIST I_EYE I_STAR I_EYE_OFF I_MENU I_COPY I_CUT I_PASTE I_EDIT I_BACK I_FORWARD I_LEFT I_GRID I_BOOKMARK I_LINK I_LOCK I_EXTERNAL I_UNDO I_SORT_UP I_SORT_DOWN I_DESKTOP I_DOWNLOAD I_MUSIC I_VIDEO I_FILE_TEXT I_FILE_IMAGE I_FILE_AUDIO I_FILE_VIDEO I_FILE_ARCHIVE I_FILE_CODE I_FILE_PDF I_MIC I_VOLUME I_MUTE I_RECORD I_PAUSE I_REPEAT I_SLIDERS I_HEADPHONES` |
 | **picker** (`picker::`) | |
 | `start(why, FILE\|DIR, title, start_dir, filter={})` | open; `filter` = `String[]` like `{ ".png", ".jpg" }` |
 | `open`, `draw()` | is it showing / draw it on layer 1 |
@@ -133,6 +134,8 @@ fn void main(String[] args)
 | `load()`, `is_archive(name)`, `stem(name)`, `Index.start(path)`, `.phase()`, `.progress(..)`, `.list(rel, &out, hidden)`, `.find(rel)`, `.size(i)` `.mtime(i)` `.is_dir(i)`, `.close()` | libarchive via lazy `dlopen`; background table of contents, folders listed from memory |
 | **find** (`find::`) | |
 | `Finder.start(root, query, hidden)`, `.results()`, `.rel(i)` `.name(i)` `.folder(i)` `.is_dir(i)`, `.searching()`, `.limited()`, `.close()` | background recursive name search, breadth-first, same filesystem, append-only hits |
+| **audio** (`audio::`) — Linux | |
+| `Device.scan(app, offline=false)`, `.input_count`/`.input_name(i)`, `.output_count`/`.output_name(i)`, `.open(process, user, in_channels=1, out_channels=2, rate=48000, period=256, input=-1, output=-1)`, `.stop()`, `.close()`, `.rate` `.in_channels` `.out_channels` `.backend` `.error` | one full-duplex device (miniaudio inside raylib); `Process = fn void(void* user, float* output, float* input, uint frames)` runs on the audio thread (interleaved f32; no alloc/locks/ui there); Device at a stable address |
 | **txt** (`txt::`) — `char[]` buffers | |
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |

@@ -90,6 +90,14 @@ const String I_FILE_VIDEO = "\uF1C8";
 const String I_FILE_ARCHIVE = "\uF1C6";
 const String I_FILE_CODE = "\uF1C9";
 const String I_FILE_PDF = "\uF1C1";
+const String I_MIC    = "\uF130";
+const String I_VOLUME = "\uF028";
+const String I_MUTE   = "\uF026";
+const String I_RECORD = "\uF111";
+const String I_PAUSE  = "\uF04C";
+const String I_REPEAT = "\uF01E";
+const String I_SLIDERS = "\uF1DE";
+const String I_HEADPHONES = "\uF025";
 
 const int[*] ICON_CODEPOINTS = {
 	0xF04B, 0xF04D, 0xF067, 0xF07B, 0xF07C, 0xF15B, 0xF013, 0xF002, 0xF1F8, 0xF062,
@@ -98,6 +106,7 @@ const int[*] ICON_CODEPOINTS = {
 	0xF0C5, 0xF0C4, 0xF0EA, 0xF040, 0xF060, 0xF061, 0xF053, 0xF00A, 0xF0C9, 0xF02E,
 	0xF0C1, 0xF023, 0xF08E, 0xF0E2, 0xF070, 0xF0DE, 0xF0DD, 0xF108, 0xF019, 0xF001,
 	0xF008, 0xF0F6, 0xF1C5, 0xF1C7, 0xF1C8, 0xF1C6, 0xF1C9, 0xF1C1,
+	0xF130, 0xF028, 0xF026, 0xF111, 0xF04C, 0xF01E, 0xF1DE, 0xF025,
 	0x2022, 0x2014, 0x2026, 0x00B7,
 };
 
@@ -505,6 +514,39 @@ fn bool section(float x, float y, float w, String title, bool* open, String deta
 	if (detail.len) { float dw = text_w(detail, 12); text(detail, x + w - dw, y, 12, GRAY); }
 	if (clicked(r)) { *open = !*open; return true; }
 	return false;
+}
+
+// Horizontal slider over `r` (track centred vertically, knob 14 px): press anywhere on it and drag to set `*v`
+// within [lo, hi]; the mouse wheel over it steps 1/20 of the range. True in frames where `*v` changed.
+// The dragged value is remembered by its address, so `v` must stay the same pointer while dragging.
+float* slider_drag;
+fn bool slider(Rect r, float* v, float lo = 0, float hi = 1, String tip = "")
+{
+	float old = *v;
+	bool h = hover(r);
+	if (h) { cursor = POINTING_HAND; if (tip.len) tooltip(tip); }
+	if (h && rl::is_mouse_button_pressed(rl::RLMouseButton.LEFT)) { slider_drag = v; consumed = true; }
+	if (slider_drag == v && !rl::is_mouse_button_down(rl::RLMouseButton.LEFT)) slider_drag = null;
+	float pad = 7;
+	float span = r.width - 2 * pad;
+	if (slider_drag == v && layer == top && span > 0)
+	{
+		*v = lo + (rl::get_mouse_position()[0] - r.x - pad) / span * (hi - lo);
+		cursor = POINTING_HAND;
+	}
+	else if (h)
+	{
+		float wheel = rl::get_mouse_wheel_move();
+		if (wheel != 0) *v += wheel * (hi - lo) / 20;
+	}
+	*v = math::clamp(*v, math::min(lo, hi), math::max(lo, hi));
+	float t = hi != lo ? (*v - lo) / (hi - lo) : 0;
+	float cy = r.y + r.height / 2;
+	bool on = h || slider_drag == v;
+	panel({ r.x + pad, cy - 2, span, 4 }, BG2, 2);
+	panel({ r.x + pad, cy - 2, span * t, 4 }, on ? YELLOW : DIM_YELLOW, 2);
+	rl::draw_circle_v({ r.x + pad + span * t, cy }, on ? 7.5f : 7, on ? FG : FG4);
+	return *v != old;
 }
 
 // Text input ----------------------------------------------------------------------
