@@ -89,7 +89,8 @@ fn void main(String[] args)
 | `zoom(s)`, `zoom_changed`, `zoom_toast`, `clear_color`, `close()` | scale like Ctrl +/-; "changed this frame" flag; toast on/off; background; shutdown |
 | **layout & state** (`ui::`) | |
 | `sw()`, `sh()` | window size in logical px |
-| `scale`, `set_scale(s)`, `auto_scale()` | logical→physical (0.75..3); 1.0 ≤1440p, 1.5 at 4K |
+| `scale`, `set_scale(s)`, `auto_scale()` | UI zoom, logical→window px (0.75..3, persist it); 1.0 ≤1440 compositor lines, 1.5 at unscaled 4K |
+| `dpi`, `px`, `dpi_changed`, `scale_auto` | compositor (fractional) scale; `px = scale*dpi` logical→physical (use for texture sizes, 1:1 images) |
 | `layer`, `top`, `live()` | layer being drawn; layer that gets input; "may this widget react now" |
 | `now`, `consumed`, `cursor` | `rl::get_time()` at frame start; a click was used; mouse cursor to show |
 | **drawing** (`ui::`) | |

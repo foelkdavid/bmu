@@ -22,11 +22,16 @@ Consequences:
 
 ## Logical pixels
 
-All coordinates are logical px. `ui::scale` (0.75–3, Ctrl +/−/0, default from the monitor: 1.0 ≤1440p, 1.5 at 4K)
-maps them to physical px through a raylib 2D camera zoom, and the mouse is scaled back. So a 36 px input is 36 px at
-1080p and 54 physical px at 4K, and your layout code never changes.
+All coordinates are logical px. `ui::scale` (0.75–3, Ctrl +/−/0, default from the monitor: 1.0 ≤1440p, 1.5 at 4K,
+measured in compositor px) is the user's UI zoom. `ui::dpi` is the compositor's scale for the window's output (Wayland
+fractional scale, e.g. 1.5; read every frame, it arrives after the window maps). `ui::px` = `scale × dpi` maps logical
+px to physical framebuffer px through a raylib 2D camera zoom, and the mouse is scaled back. The window is HighDPI, so
+a scaled output gets a native-resolution buffer (no compositor upscaling blur). So a 36 px input is 36 px at 1080p
+and 54 physical px at 4K, and your layout code never changes.
 
-- Window size: `ui::sw()`, `ui::sh()` (logical). Not `rl::get_screen_width()` (physical).
+- Physical pixel math (texture/thumbnail/page render sizes, "1 texel = 1 screen pixel"): use `ui::px`, not `ui::scale`.
+
+- Window size: `ui::sw()`, `ui::sh()` (logical). Not `rl::get_screen_width()` (compositor px).
 - Scissor: `ui::scissor` / `ui::begin_clip` (logical). Not `rl::begin_scissor_mode` (physical).
 - Persist the user's zoom: when `ui::zoom_changed`, save `ui::scale`; pass it to `ui::open(..., ui_scale: saved)`.
 - Text is rasterized at its displayed physical pixel size; origins and sizes round to physical pixels so glyphs

@@ -25,6 +25,7 @@ Color clear_color = BG;
 bool zoom_toast = true; // frame_begin's zoom shortcuts show "UI scale N%"
 bool zoom_shift_only;   // reserve plain Ctrl +/-/0 for app content zoom
 bool zoom_changed;      // set for one frame when the user changed the scale
+bool scale_auto;        // `scale` is auto_scale(): re-picked when the compositor scale (`dpi`) becomes known/changes
 
 char[1024] shot_path;   // --shot FILE: save a PNG after `shot_frames` frames, then quit
 int shot_frames = 3;
@@ -49,8 +50,13 @@ fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h
 	rl::set_trace_log_level(rl::RLTraceLogLevel.WARNING);
 	// No VSYNC_HINT: on Wayland the first synced swap stalls ~0.5 s (compositors never tear anyway); frames are
 	// paced by set_target_fps with a sleep-only wait (bmu's raylib patch).
-	rl::set_config_flags(rl::RLConfigFlag.WINDOW_RESIZABLE | rl::RLConfigFlag.MSAA_4X_HINT);
+	// WINDOW_HIGHDPI: the framebuffer follows the compositor's (fractional) output scale, so a 1.5x output gets
+	// a native-resolution buffer instead of a 1x one stretched (blurred) by the compositor. `dpi` arrives with
+	// the first frames (Wayland tells a surface its scale only after it is mapped).
+	rl::set_config_flags(rl::RLConfigFlag.WINDOW_RESIZABLE | rl::RLConfigFlag.MSAA_4X_HINT | rl::RLConfigFlag.WINDOW_HIGHDPI);
 	rl::init_window(w, h, title.zstr_tcopy());
+	scale_auto = ui_scale <= 0;
+	sync_dpi();
 	set_scale(ui_scale > 0 ? ui_scale : auto_scale());
 	fit_window(true);
 	rl::set_exit_key(rl::RLKeyboardKey.NONE);
@@ -97,7 +103,7 @@ fn void app_args(String[] args)
 		{
 			case "--shot": txt::set(&shot_path, args[i + 1]);
 			case "--frames": if (try n = args[i + 1].to_int()) shot_frames = math::max(n, 1);
-			case "--scale": if (try f = args[i + 1].to_float()) { set_scale(f); fit_window(true); }
+			case "--scale": if (try f = args[i + 1].to_float()) { scale_auto = false; set_scale(f); fit_window(true); }
 		}
 	}
 }
@@ -114,22 +120,29 @@ fn bool running()
 
 <*
  Start a frame: input state (begin_frame), Ctrl +/-/0 zoom (with Shift if zoom_shift_only), input layer (`modal`
- true = only layer 1 reacts), begin_drawing, clear, 2D zoom by `scale`.
+ true = only layer 1 reacts), begin_drawing, clear, 2D zoom by `px` (UI scale x compositor scale).
 *>
 fn void frame_begin(bool modal = false)
 {
 	begin_frame();
+	if (dpi_changed && scale_auto)
+	{
+		set_scale(auto_scale());
+		fit_window(frame_count < 10); // resize only right after opening, never under the user later
+	}
 	if (!popup_open && menu_id < 0) top = modal ? 1 : 0;
 	zoom_changed = false;
 	if (ctrl_down() && (!zoom_shift_only || shift_down()))
 	{
 		float s = scale + (float)zoom_step() * 0.25f;
-		if (rl::is_key_pressed(rl::RLKeyboardKey.ZERO)) s = auto_scale();
+		bool reset = rl::is_key_pressed(rl::RLKeyboardKey.ZERO);
+		if (reset) s = auto_scale();
 		if (s != scale) zoom(s);
+		if (reset) scale_auto = true;
 	}
 	rl::begin_drawing();
 	rl::clear_background(clear_color);
-	rl::begin_mode2d({ .offset = { 0, 0 }, .target = { 0, 0 }, .rotation = 0, .zoom = scale });
+	rl::begin_mode2d({ .offset = { 0, 0 }, .target = { 0, 0 }, .rotation = 0, .zoom = px }); // mode2d drops raylib's DPI matrix
 	layer = 0;
 }
 
@@ -138,6 +151,7 @@ fn void zoom(float s)
 {
 	float previous = scale;
 	set_scale(s);
+	scale_auto = false;
 	if (previous == scale) return;
 	fit_window(false);
 	zoom_changed = true;

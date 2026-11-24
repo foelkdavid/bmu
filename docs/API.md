@@ -59,7 +59,7 @@ fn void main(String[] args)
 
 | | |
 |---|---|
-| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0, String app_id = "")` | Resizable window (MSAA 4x; 60 FPS paced by sleeping, no vsync: on Wayland the first synced swap stalls ~0.5 s), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. `app_id` (default `title`) is the Wayland app_id: shells match it to `<app_id>.desktop` for the window's taskbar/switcher icon, so name the .desktop file after it (COOKBOOK "App icon"). |
+| `fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h = 500, float ui_scale = 0, String app_id = "")` | Resizable HighDPI window (native-resolution framebuffer on scaled outputs; MSAA 4x; 60 FPS paced by sleeping, no vsync: on Wayland the first synced swap stalls ~0.5 s), size `w x h` **logical** px times the scale, clamped to 90% of the monitor; min size likewise. `ui_scale > 0` sets the scale (e.g. a saved one), else `auto_scale()`. Loads the font, maps the keyboard layout, 60 FPS, `Esc` does **not** close the window, raylib log level WARNING. `app_id` (default `title`) is the Wayland app_id: shells match it to `<app_id>.desktop` for the window's taskbar/switcher icon, so name the .desktop file after it (COOKBOOK "App icon"). |
 | `fn void set_app_id(String id)` | Wayland app_id for the next window (`open` calls it with `app_id` or `title`; cut to 255 bytes; no effect on an open window). |
 | `fn void app_args(String[] args)` | Reads `--shot FILE` (save a PNG of the window after `--frames N` frames, default 3, and once the window size has been stable for 5 frames, so a tiling WM's resize is not caught; then `running()` returns false), `--scale S`. Ignores every other argument: parse your own afterwards (skip `--x value` pairs). |
 | `fn bool running()` | `false` when the window is closed, `quit` was set, or the `--shot` was taken. |
@@ -155,9 +155,14 @@ Transparent variants: `{ ui::AQUA.r, ui::AQUA.g, ui::AQUA.b, 70 }`.
 | | |
 |---|---|
 | `fn float sw()`, `fn float sh()` | Window width/height in logical px. Lay out relative to these each frame (resizable window). |
-| `float scale` | Logical → physical factor, 0.75 … 3. |
-| `fn void set_scale(float s)` | Clamp and apply (also mouse scaling). Prefer `zoom()` inside the loop. |
-| `fn float auto_scale()` | 1.0 up to 1440p monitor height, steps of 0.25 above (2160p → 1.5), max 2.5. |
+| `float scale` | UI zoom, logical → window (compositor) px, 0.75 … 3. The user's setting: persist this one. |
+| `float dpi` | Compositor scale of the window's output (Wayland fractional scale, e.g. 1.5), window px → physical px. 1 until the compositor sends it (first frames). |
+| `float px` | `scale * dpi`: logical → physical framebuffer px. Use it for texture/thumbnail/render sizes and 1:1 image display. |
+| `bool dpi_changed` | True for the frame in which `dpi` changed (first frames, or the window moved to another output). |
+| `bool scale_auto` | `scale` came from `auto_scale()` (`open` with `ui_scale` 0, or Ctrl+0); `frame_begin` re-picks it when `dpi` changes. |
+| `fn void set_scale(float s)` | Clamp and apply (also `px` and mouse scaling). Prefer `zoom()` inside the loop. |
+| `fn void sync_dpi()` | Re-read `dpi` from the window (`begin_frame` calls it). Needs `FLAG_WINDOW_HIGHDPI` (`open` sets it). |
+| `fn float auto_scale()` | By monitor height in compositor px (physical / `dpi`): 1.0 up to 1440, steps of 0.25 above (2160 at dpi 1 → 1.5; 2160 at dpi 1.5 → 1.0), max 2.5. |
 | `int layer` | The layer you are drawing (set it: 0 normal, 1 modal). |
 | `int top` | The layer that receives input this frame (set by `frame_begin`; 99 while a dropdown is open). |
 | `fn bool live()` | `layer == top && !consumed`: may a widget react now? Use for your own key handling inside modals. |
@@ -577,6 +582,7 @@ If you manage the window yourself (or embed bmu into a raylib game):
 ```c3
 // sketch
 rl::init_window(1280, 800, "x");
+ui::sync_dpi();                         // with FLAG WINDOW_HIGHDPI; begin_frame re-reads it
 ui::set_scale(ui::auto_scale());
 ui::load_font();
 ui::map_layout();
@@ -586,7 +592,7 @@ while (!rl::window_should_close())
 	if (!ui::popup_open) ui::top = modal ? 1 : 0;
 	rl::begin_drawing();
 	rl::clear_background(ui::BG);
-	rl::begin_mode2d({ .zoom = ui::scale });
+	rl::begin_mode2d({ .zoom = ui::px });  // mode2d drops raylib's DPI matrix: zoom by scale x dpi
 	// ... widgets ...
 	ui::end_frame();                   // popup, tooltip, toast, cursor
 	rl::end_mode2d();

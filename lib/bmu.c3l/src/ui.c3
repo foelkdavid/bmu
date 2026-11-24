@@ -5,7 +5,7 @@ import bmu::txt;
 
 // bmu::ui - small immediate-mode widget kit for raylib. Gruvbox dark palette,
 // embedded Nerd Font (CodeNewRoman Nerd Font Propo, OFL - see ../assets/README.txt).
-// Everything is drawn in LOGICAL pixels; `scale` maps them to physical pixels.
+// Everything is drawn in LOGICAL pixels; `px` (= `scale` x `dpi`) maps them to physical pixels.
 // Docs: docs/API.md (every function), docs/CONCEPTS.md (layers, ids, buffers).
 
 alias Color = rl::RLColor;
@@ -122,9 +122,9 @@ ulong font_clock;
 // Flush queued glyphs before deleting an atlas during LRU eviction.
 extern fn void flush_font_batch() @cname("rlDrawRenderBatchActive");
 
-fn int font_pixels(float size) => (int)math::clamp(math::round(size * scale), 1.0f, (float)FONT_MAX_PIXELS);
-fn float text_pixel(float position) => math::round(position * scale) / scale;
-fn float text_size(float size) => size * scale > (float)FONT_MAX_PIXELS ? size : (float)font_pixels(size) / scale;
+fn int font_pixels(float size) => (int)math::clamp(math::round(size * px), 1.0f, (float)FONT_MAX_PIXELS);
+fn float text_pixel(float position) => math::round(position * px) / px;
+fn float text_size(float size) => size * px > (float)FONT_MAX_PIXELS ? size : (float)font_pixels(size) / px;
 
 fn rl::RLFont bake_font(int pixels)
 {
@@ -258,28 +258,50 @@ rl::RLMouseCursor cursor;
 bool consumed;      // a click was handled this frame
 double now;
 
-float scale = 1;     // logical px -> physical px
+float scale = 1;     // UI zoom: logical px -> window (compositor) px; the user's setting, persisted by apps
+float dpi = 1;       // compositor scale of the window's output (Wayland fractional scale, e.g. 1.5): window px -> physical px
+float px = 1;        // scale * dpi: logical px -> physical (framebuffer) px; use it to size textures/fonts/1:1 images
+bool dpi_changed;    // set for one frame by begin_frame() when `dpi` changed (window moved to another output)
 
 fn float sw() => (float)rl::get_screen_width() / scale;
 fn float sh() => (float)rl::get_screen_height() / scale;
 
 fn void scissor(int x, int y, int w, int h)
 {
-	rl::begin_scissor_mode((int)((float)x * scale), (int)((float)y * scale), (int)((float)w * scale + 0.99f), (int)((float)h * scale + 0.99f));
+	// rlgl directly, in physical px: raylib's begin_scissor_mode takes window px and truncates after its DPI multiply
+	flush_font_batch();
+	rl::gl_enable_scissor_test();
+	int x0 = (int)((float)x * px);
+	int y0 = (int)((float)y * px);
+	int x1 = (int)((float)(x + w) * px + 0.99f);
+	int y1 = (int)((float)(y + h) * px + 0.99f);
+	rl::gl_scissor(x0, rl::get_render_height() - y1, x1 - x0, y1 - y0);
 }
 
 fn void set_scale(float s)
 {
 	scale = math::clamp(s, 0.75f, 3.0f);
-	rl::set_mouse_scale(1 / scale, 1 / scale);
+	px = scale * dpi;
+	rl::set_mouse_scale(1 / scale, 1 / scale); // mouse positions arrive in window px
 }
 
-// Reasonable default: 1.0 at 1440p and below, 1.5 at 4K.
+<* Re-read the window's compositor scale (begin_frame calls it). Fonts follow by themselves (atlases are per pixel size). *>
+fn void sync_dpi()
+{
+	float d = rl::get_window_scale_dpi()[0];
+	dpi_changed = d > 0 && d != dpi;
+	if (!dpi_changed) return;
+	dpi = d;
+	px = scale * dpi;
+}
+
+// Reasonable default: 1.0 at 1440p and below, 1.5 at 4K - measured in window px, so a 4K output that the
+// compositor already scales by 1.5 (1440 logical lines) gets 1.0.
 fn float auto_scale()
 {
 	int mh = rl::get_monitor_height(0); // primary output (Wayland gives windows no position)
 	if (mh <= 0) return 1;
-	return math::clamp(math::round((float)mh / 1440 * 4) / 4, 1.0f, 2.5f);
+	return math::clamp(math::round((float)mh / dpi / 1440 * 4) / 4, 1.0f, 2.5f);
 }
 
 // Modifier state that came with mouse clicks. raylib only learns Ctrl/Shift from key events sent to its
@@ -327,6 +349,7 @@ fn void begin_frame()
 	cursor = DEFAULT;
 	consumed = false;
 	now = rl::get_time();
+	sync_dpi();
 	sync_click_modifiers();
 	layer = 0;
 	if (popup_open) { top = POPUP_LAYER; } else if (menu_id >= 0) { top = MENU_LAYER; }

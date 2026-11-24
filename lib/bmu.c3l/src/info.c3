@@ -76,7 +76,7 @@ fn void about_reset(String app, String version) => @pool()
 	about_add("GPU", gpu());
 	about_add("OpenGL", gl_version());
 	about_add("Monitor", string::tformat("%s · %d × %d @ %d Hz", rl::get_monitor_name(0).str_view(), rl::get_monitor_width(0), rl::get_monitor_height(0), rl::get_monitor_refresh_rate(0)));
-	about_add("Interface", string::tformat("%d%%", (int)(scale * 100 + 0.5f)));
+	about_add("Interface", string::tformat("%d%% · display %d%%", (int)(scale * 100 + 0.5f), (int)(dpi * 100 + 0.5f)));
 	char[4096] exe;
 	sz n = about_readlink("/proc/self/exe", &exe, exe.len - 1);
 	about_add("Binary", n > 0 ? (String)exe[:(usz)n] : "unknown");
