@@ -163,6 +163,31 @@ fn void tabs(float x, float y, float w)
 }
 ```
 
+## A sidebar with collapsible sections
+
+Long lists fold away so the sections below them stay in reach. Persist the `open` flags with the other settings.
+
+```c3
+bool sec_items_open = true;
+bool sec_options_open = true;
+bool opt_grid;
+
+fn float side_sections(float x, float y, float w, String[] side_items)
+{
+	ui::section(x, y, w, "ITEMS", &sec_items_open, string::tformat("%d", side_items.len));
+	y += 24;
+	if (sec_items_open)
+	{
+		foreach (it : side_items) { ui::text_fit(it, x + 16, y + 4, w - 16, 15, ui::FG4); y += 26; }
+	}
+	y += 10;
+	ui::section(x, y, w, "OPTIONS", &sec_options_open);
+	y += 24;
+	if (sec_options_open) { ui::checkbox(x, y, "Grid", &opt_grid); y += 30; }
+	return y;                                         // content height for ui::scroll_wheel
+}
+```
+
 ## The file picker with several purposes
 
 One picker, many buttons: the purpose int tells you which one opened it.

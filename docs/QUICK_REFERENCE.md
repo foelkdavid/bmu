@@ -105,6 +105,7 @@ fn void main(String[] args)
 | `button(r, label, style=NORMAL, icon="", enabled=true) -> bool` | styles `NORMAL PRIMARY GOOD DANGER GHOST`; true on click |
 | `icon_button(r, icon, color=FG4, tip="") -> bool` | square icon, hover background, tooltip |
 | `checkbox(x, y, label, &flag, hint="") -> bool` | toggles `flag`; true when toggled; 24 px tall |
+| `section(x, y, w, title, &open, detail="") -> bool` | collapsible heading (chevron, 22 px); true when toggled; draw rows only while `open` |
 | `input(id, r, &buf, placeholder="", &submitted=null, icon="") -> bool` | one-line editor; true when text changed; `submitted` set on Enter |
 | `input_arrows_free`, `input_replace(&buf, s)` | keep Up/Down for a suggestion list / replace text, caret to end |
 | `secret_input(id, r, &buf, placeholder, &submitted) -> bool`, `wipe(&buf)` | password field (bullets, no copy/undo) / zero a buffer for good |

@@ -493,6 +493,20 @@ fn bool checkbox(float x, float y, String label, bool* v, String hint = "")
 	return false;
 }
 
+// Collapsible section heading: chevron + small caps title (+ optional dim detail on the right), `w` wide,
+// 22 px tall. Click toggles `*open`; true when toggled. Draw the section's rows only while `*open`.
+fn bool section(float x, float y, float w, String title, bool* open, String detail = "")
+{
+	Rect r = { x - 4, y - 3, w + 8, 22 };
+	bool h = hover(r);
+	if (h) { cursor = POINTING_HAND; panel(r, BG1, 4); }
+	text(*open ? I_DOWN : I_RIGHT, x, y + 2, 10, h ? FG4 : GRAY);
+	text(title, x + 16, y, 12, h ? FG4 : GRAY);
+	if (detail.len) { float dw = text_w(detail, 12); text(detail, x + w - dw, y, 12, GRAY); }
+	if (clicked(r)) { *open = !*open; return true; }
+	return false;
+}
+
 // Text input ----------------------------------------------------------------------
 // One field is focused at a time; caret/anchor/undo belong to that field.
 // Selection is [min(anchor, caret), max(anchor, caret)).

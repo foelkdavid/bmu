@@ -191,6 +191,7 @@ if (ui::button({ x, y, 140, 40 }, "Save", PRIMARY, ui::I_CHECK)) save();
 if (ui::button({ x, y, 140, 40 }, "Delete", DANGER, ui::I_TRASH, has_selection)) delete();
 if (ui::icon_button({ x, y, 36, 36 }, ui::I_GEAR, ui::FG4, "Settings")) settings_open = true;
 ui::checkbox(x, y, "Show hidden", &show_hidden, "Also list dot-files");
+if (ui::section(x, y, w, "FILTERS", &filters_open, "3 on")) save_settings();   // collapsible heading
 ```
 
 | | |
@@ -199,6 +200,7 @@ ui::checkbox(x, y, "Show hidden", &show_hidden, "Also list dot-files");
 | `fn bool button(Rect r, String label, Style style = NORMAL, String icon = "", bool enabled = true)` | True on the click frame. Label and icon centred; text is 20 px when `r.height >= 44`, else 15. Disabled: greyed, never true. Label `""` + icon = icon-only button with a background. Heights: 36–40 normal, 44+ big. |
 | `fn bool icon_button(Rect r, String icon, Color color = FG4, String tip = "")` | Icon at half the rect height, hover background + tooltip. |
 | `fn bool checkbox(float x, float y, String label, bool* v, String hint = "")` | 24 px tall row (box + label); toggles `*v`, true when toggled. `hint` = tooltip. |
+| `fn bool section(float x, float y, float w, String title, bool* open, String detail = "")` | Collapsible sidebar heading, 22 px tall, `w` wide: chevron + 12 px title, `detail` right-aligned (a count). Click toggles `*open`, true when toggled; draw the section's rows only while `*open` (long lists fold away so the sections below stay in reach). |
 
 ## 7. Text input
 
