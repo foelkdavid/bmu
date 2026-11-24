@@ -54,11 +54,23 @@ fn void open(String title, int w = 1280, int h = 800, int min_w = 800, int min_h
 	// a native-resolution buffer instead of a 1x one stretched (blurred) by the compositor. `dpi` arrives with
 	// the first frames (Wayland tells a surface its scale only after it is mapped).
 	rl::set_config_flags(rl::RLConfigFlag.WINDOW_RESIZABLE | rl::RLConfigFlag.MSAA_4X_HINT | rl::RLConfigFlag.WINDOW_HIGHDPI);
-	rl::init_window(w, h, title.zstr_tcopy());
+	// Created at its final size, never resized before it is mapped: with NVIDIA's EGL on a fractionally scaled
+	// output, a pre-map set_window_size left the compositor showing the HighDPI buffer enlarged and off-centre once
+	// the open animation ended. An auto scale is only known after mapping (`dpi`), so that window starts at w x h
+	// window px (right for a scaled output, where auto_scale() settles on 1.0); a saved scale is applied up front.
+	float s0 = ui_scale > 0 ? math::clamp(ui_scale, 0.75f, 3.0f) : 1;
+	rl::init_window((int)((float)w * s0), (int)((float)h * s0), title.zstr_tcopy());
 	scale_auto = ui_scale <= 0;
 	sync_dpi();
 	set_scale(ui_scale > 0 ? ui_scale : auto_scale());
-	fit_window(true);
+	fit_window(false);
+	// Too big for the monitor (large saved scale, small screen): the one case still resized before mapping.
+	int mw = (int)((float)rl::get_monitor_width(0) * 0.9f);
+	int mh = (int)((float)rl::get_monitor_height(0) * 0.9f);
+	if (mw > 0 && mh > 0 && (rl::get_screen_width() > mw || rl::get_screen_height() > mh))
+	{
+		rl::set_window_size(math::min(rl::get_screen_width(), mw), math::min(rl::get_screen_height(), mh));
+	}
 	rl::set_exit_key(rl::RLKeyboardKey.NONE);
 	rl::set_target_fps(60);
 	load_font();
@@ -71,7 +83,8 @@ fn void set_app_id(String id)
 	txt::set(&wayland_app_id, id);
 }
 
-<* Re-apply the minimum window size for the current scale; `resize` also sets the initial size. *>
+<* Re-apply the minimum window size for the current scale; `resize` also resets the window size (base size x scale,
+   clamped to the monitor). Avoid `resize` on a window that is mapped or about to be (open() does not use it). *>
 fn void fit_window(bool resize)
 {
 	rl::set_window_min_size((int)((float)min_base_w * scale), (int)((float)min_base_h * scale));
