@@ -450,15 +450,19 @@ File system, Trash, no saved places. Each change saves at once (atomic rename); 
 | file operations | 16384 top-level items per job, 255-byte names, 4095-byte paths, 128 folder levels below an item, one operation per `fileop::Job`; 4 MiB copy steps (cancel/progress granularity); 1 MiB fallback buffer per job |
 | archives | 65536 entries per index (implied folders included), 8 MiB of entry paths, 255-byte path components, 4095-byte paths; one index per `archive::Index`; 64 KiB read blocks; encrypted entries are not extracted |
 | recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
-| image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`); one pending request and one ready result per loader |
+| image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`), optional fit box (`limits.fit_w`/`fit_h`); one pending request and one ready result per loader |
 | clip | one level (`begin_clip` doesn't nest) |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
 
 ## Async images (`bmu::image`)
 
 Zero-initialize `image::Loader` at a stable address; do not copy it after its first request.
-`loader.limits` (`image::Limits`: `max_edge`, `max_file_bytes`, `max_pixels`; 0 = the defaults below) can be set before
-a request: a viewer sets `max_edge = image::MAX_EDGE` for full resolution, previews keep the 1600 px default.
+`loader.limits` (`image::Limits`: `max_edge`, `max_file_bytes`, `max_pixels`; 0 = the defaults below; `fit_w`/`fit_h`:
+optional box) can be set before a request: a viewer sets `max_edge = image::MAX_EDGE` for full resolution, previews keep
+the 1600 px default. With `fit_w` and `fit_h` both > 0 the result is also downsampled to fit inside that box (aspect
+kept, never enlarged; the tighter of box and `max_edge` wins): a viewer passes the screen in physical px, so browsing
+huge photos uploads screen-sized textures, and requests full resolution only when zoomed in. The resize runs on the
+worker; `Result.width`/`height` stay the source size.
 All methods are called by one owning/UI thread. No window or GPU context is needed to decode.
 
 | call/type | contract |

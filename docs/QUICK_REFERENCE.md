@@ -125,7 +125,7 @@ fn void main(String[] args)
 | **places** (`places::`) | |
 | `load()`, `count`, `path(i)`, `add(p)`, `remove(i)`, `downloads`/`trash`, `set_downloads(on)`/`set_trash(on)`, `downloads_path()`/`trash_path()` | the sidebar shared by all bmu apps (`~/.config/bmu/places`, written only by a file manager; defaults without it); the picker shows it; changes save at once |
 | **image** (`image::`) | |
-| `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` | bounded lazy CPU worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
+| `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` (`max_edge`, `fit_w`/`fit_h` box, file/pixel caps) | bounded lazy CPU worker; downsamples on the worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
 | `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `SudoRun.start(argv, &password)` / `.poll()` runs a program as root; `start_elevated(..., &password)` runs a job as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)`; `Job.extract(archive, inner, names, dst, smart)` unpacks an archive (`EXTRACT`) |
 | **archive** (`archive::`) | |

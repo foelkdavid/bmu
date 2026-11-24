@@ -401,6 +401,22 @@ fn void async_preview_example()
 }
 ```
 
+
+**Viewer of huge photos.** Decode to the screen, not to the source: the worker downsamples, the UI thread
+uploads a screen-sized texture (fast, little VRAM). Request full resolution only for the shown image, once the
+zoom asks for more texels than the texture has. Upload at most one finished decode per frame.
+
+```c3
+fn void request_screen_sized(image::Loader* viewer, String path)
+{
+	int mon = rl::get_current_monitor();
+	viewer.limits = { .max_edge = image::MAX_EDGE, .max_file_bytes = 128 * 1024 * 1024, .max_pixels = 64 * 1000 * 1000,
+		.fit_w = rl::get_monitor_width(mon), .fit_h = rl::get_monitor_height(mon) }; // physical px; 0/0 = no box
+	viewer.request(path);
+	// Draw with result.width/height (the source size), sampling the whole smaller texture.
+}
+```
+
 ## A custom widget
 
 Use `hover`/`clicked`, set the cursor, draw with `panel`/`text`. This one is a segmented toggle.

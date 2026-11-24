@@ -42,6 +42,28 @@ fn void main()
 	big = wait(&full);
 	assert(big.status == READY && big.pixels.width == 400 && big.pixels.height == 200);
 	rl::unload_image(big.pixels);
+	// Fit box: the tighter of box and max_edge wins, aspect kept, never enlarged.
+	full.limits = { .max_edge = image::MAX_EDGE, .fit_w = 1000, .fit_h = 1000 };
+	assert(full.request("dev/fixtures/image-wide.png"));
+	big = wait(&full);
+	assert(big.status == READY && big.width == 3200 && big.pixels.width == 1000 && big.pixels.height == 500);
+	rl::unload_image(big.pixels);
+	full.limits = { .max_edge = image::MAX_EDGE, .fit_w = 4000, .fit_h = 400 };
+	assert(full.request("dev/fixtures/image-wide.png"));
+	big = wait(&full);
+	assert(big.status == READY && big.pixels.width == 800 && big.pixels.height == 400);
+	rl::unload_image(big.pixels);
+	full.limits = { .max_edge = 600, .fit_w = 4000, .fit_h = 4000 };
+	assert(full.request("dev/fixtures/image-wide.png"));
+	big = wait(&full);
+	assert(big.status == READY && big.pixels.width == 600 && big.pixels.height == 300);
+	rl::unload_image(big.pixels);
+	full.limits = { .max_edge = image::MAX_EDGE, .fit_w = 8000, .fit_h = 8000 };
+	assert(full.request("dev/fixtures/image-wide.png"));
+	big = wait(&full);
+	assert(big.status == READY && big.pixels.width == 3200 && big.pixels.height == 1600);
+	rl::unload_image(big.pixels);
+	full.limits = {};
 	full.limits.max_pixels = 1000;
 	assert(full.request("dev/fixtures/image-wide.png"));
 	assert(wait(&full).status == TOO_LARGE);
