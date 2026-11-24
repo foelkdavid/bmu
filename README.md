@@ -40,5 +40,5 @@ Documentation: [docs/README.md](docs/README.md). Start with [GETTING_STARTED](do
 
 ## License
 
-Code: no license chosen yet. Font: CodeNewRoman Nerd Font Propo, SIL Open Font License 1.1 (`lib/bmu.c3l/assets/OFL.txt`).
+Code: MIT (`LICENSE`). Font: CodeNewRoman Nerd Font Propo, SIL Open Font License 1.1 (`lib/bmu.c3l/assets/OFL.txt`).
 raylib: zlib license (`lib/raylib6.c3l/LICENSE`).
