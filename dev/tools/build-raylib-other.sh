@@ -2,11 +2,13 @@
 # Build lib/raylib6.c3l/<target>/ for macOS or Windows: raylib 6.0, static, the platform's own GLFW backend
 # (Cocoa / Win32) plus the platform-neutral bmu patches (dev/tools/raylib-*.patch; the glfw-*.patch files are
 # Wayland fixes and are not applied). Meant for CI runners on that OS (release builds of the apps):
-#   macOS (Xcode command line tools):  dev/tools/build-raylib-other.sh macos      -> macos-aarch64 or macos-x64
+#   macOS (Xcode command line tools):  dev/tools/build-raylib-other.sh macos [aarch64|x64]   -> macos-<arch>
+#                                      (default: the runner's own; x64 on Apple Silicon cross-compiles)
 #   Windows (Git Bash, CMake, MSVC):   dev/tools/build-raylib-other.sh windows    -> windows-x64/raylib.lib
 # Linux keeps using dev/tools/build-raylib.sh (Wayland only).
 set -eu
-os=${1:?usage: build-raylib-other.sh macos|windows}
+os=${1:?usage: build-raylib-other.sh macos [aarch64|x64] | windows}
+arch=${2:-}
 cd "$(dirname "$0")/../.."
 REV=dbc56a87da87d973a9c5baa4e7438a9d20121d28   # tag 6.0
 work=$(mktemp -d)
@@ -16,9 +18,11 @@ git clone -q --depth 1 --branch 6.0 https://github.com/raysan5/raylib "$work/ray
 for p in dev/tools/raylib-*.patch; do git -C "$work/raylib" apply "$PWD/$p"; done
 case "$os" in
 macos)
-	case "$(uname -m)" in arm64) target=macos-aarch64 ;; *) target=macos-x64 ;; esac
+	[ -n "$arch" ] || case "$(uname -m)" in arm64) arch=aarch64 ;; *) arch=x64 ;; esac
+	target=macos-$arch
+	case "$arch" in aarch64) clang_arch=arm64 ;; x64) clang_arch=x86_64 ;; *) echo "unknown arch: $arch"; exit 1 ;; esac
 	make -s -C "$work/raylib/src" -j"$(sysctl -n hw.ncpu)" PLATFORM=PLATFORM_DESKTOP_GLFW RAYLIB_LIBTYPE=STATIC \
-		RAYLIB_BUILD_MODE=RELEASE CUSTOM_CFLAGS="-DSUPPORT_FILEFORMAT_JPG=1 -mmacosx-version-min=11.0"
+		RAYLIB_BUILD_MODE=RELEASE CUSTOM_CFLAGS="-DSUPPORT_FILEFORMAT_JPG=1 -mmacosx-version-min=11.0 -arch $clang_arch"
 	mkdir -p "lib/raylib6.c3l/$target"
 	cp "$work/raylib/src/libraylib.a" "lib/raylib6.c3l/$target/libraylib.a"
 	;;

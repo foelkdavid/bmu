@@ -63,7 +63,7 @@ fn void about_add(String key, String value)
 	about_count++;
 }
 
-extern fn sz about_readlink(ZString path, char* buf, usz size) @cname("readlink") @private @if(env::LINUX);
+extern fn sz about_readlink(ZString path, char* buf, usz size) @cname("readlink") @private @feat(LINUX);
 
 <* Start the About rows: version, display backend, GLFW, raylib, GPU, OpenGL, monitor, UI scale, binary. *>
 fn void about_reset(String app, String version) => @pool()

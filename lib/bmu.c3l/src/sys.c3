@@ -8,26 +8,26 @@ import bmu::txt;
 // macOS / Windows: the plain file, folder and env functions work (through the C3 standard library); the c_*
 // process externs are Linux only.
 
-extern fn CInt c_fork() @cname("fork") @if(env::LINUX);
-extern fn CInt c_setsid() @cname("setsid") @if(env::LINUX);
-extern fn CInt c_execvpe(ZString file, ZString* argv, ZString* envp) @cname("execvpe") @if(env::LINUX);
-extern fn CInt c_dup2(CInt old, CInt new) @cname("dup2") @if(env::LINUX);
-extern fn CInt c_open(ZString path, CInt flags, ...) @cname("open") @if(env::LINUX);
-extern fn CInt c_close(CInt fd) @cname("close") @if(env::LINUX);
-extern fn sz c_write(CInt fd, char* buf, usz len) @cname("write") @if(env::LINUX);
-extern fn CInt c_chdir(ZString path) @cname("chdir") @if(env::LINUX);
-extern fn CInt c_waitpid(CInt pid, CInt* status, CInt options) @cname("waitpid") @if(env::LINUX);
-extern fn CInt c_kill(CInt pid, CInt sig) @cname("kill") @if(env::LINUX);
-extern fn CInt c_access(ZString path, CInt mode) @cname("access") @if(env::LINUX);
-extern fn CInt c_mkdir(ZString path, uint mode) @cname("mkdir") @if(env::LINUX);
-extern fn void c_exit(CInt code) @cname("_exit") @if(env::LINUX);
-extern fn void* c_opendir(ZString path) @cname("opendir") @if(env::LINUX);
-extern fn Dirent* c_readdir(void* dir) @cname("readdir") @if(env::LINUX);
-extern fn CInt c_closedir(void* dir) @cname("closedir") @if(env::LINUX);
-extern fn ZString c_realpath(ZString path, char* resolved) @cname("realpath") @if(env::LINUX);
-extern fn long c_time(long* t) @cname("time") @if(env::LINUX);
-extern ZString* environ @cname("environ") @if(env::LINUX);
-extern fn CInt c_usleep(uint usec) @cname("usleep") @if(env::LINUX);
+extern fn CInt c_fork() @cname("fork") @feat(LINUX);
+extern fn CInt c_setsid() @cname("setsid") @feat(LINUX);
+extern fn CInt c_execvpe(ZString file, ZString* argv, ZString* envp) @cname("execvpe") @feat(LINUX);
+extern fn CInt c_dup2(CInt old, CInt new) @cname("dup2") @feat(LINUX);
+extern fn CInt c_open(ZString path, CInt flags, ...) @cname("open") @feat(LINUX);
+extern fn CInt c_close(CInt fd) @cname("close") @feat(LINUX);
+extern fn sz c_write(CInt fd, char* buf, usz len) @cname("write") @feat(LINUX);
+extern fn CInt c_chdir(ZString path) @cname("chdir") @feat(LINUX);
+extern fn CInt c_waitpid(CInt pid, CInt* status, CInt options) @cname("waitpid") @feat(LINUX);
+extern fn CInt c_kill(CInt pid, CInt sig) @cname("kill") @feat(LINUX);
+extern fn CInt c_access(ZString path, CInt mode) @cname("access") @feat(LINUX);
+extern fn CInt c_mkdir(ZString path, uint mode) @cname("mkdir") @feat(LINUX);
+extern fn void c_exit(CInt code) @cname("_exit") @feat(LINUX);
+extern fn void* c_opendir(ZString path) @cname("opendir") @feat(LINUX);
+extern fn Dirent* c_readdir(void* dir) @cname("readdir") @feat(LINUX);
+extern fn CInt c_closedir(void* dir) @cname("closedir") @feat(LINUX);
+extern fn ZString c_realpath(ZString path, char* resolved) @cname("realpath") @feat(LINUX);
+extern fn long c_time(long* t) @cname("time") @feat(LINUX);
+extern ZString* environ @cname("environ") @feat(LINUX);
+extern fn CInt c_usleep(uint usec) @cname("usleep") @feat(LINUX);
 extern fn CInt c_rename(ZString from, ZString to) @cname("rename");
 
 const CInt O_RDONLY = 0;
@@ -45,7 +45,7 @@ const char DT_DIR = 4;
 const char DT_LNK = 10;
 
 // glibc / musl x86_64 layout.
-struct Dirent @if(env::LINUX)
+struct Dirent @feat(LINUX)
 {
 	ulong ino;
 	long off;
@@ -54,41 +54,41 @@ struct Dirent @if(env::LINUX)
 	char[256] name;
 }
 
-fn long now() @if(env::LINUX) => c_time(null);
-fn long now() @if(!env::LINUX) => (long)time::now().to_seconds();
+fn long now() @feat(LINUX) => c_time(null);
+fn long now() @feat(!LINUX) => (long)time::now().to_seconds();
 
-fn bool exists(String p) @if(!env::LINUX) => file::exists(p);
-fn bool is_dir(String p) @if(!env::LINUX) => file::is_dir(p);
-fn bool is_file(String p) @if(!env::LINUX) => file::is_file(p);
-fn bool is_exec(String p) @if(!env::LINUX) => is_file(p);
+fn bool exists(String p) @feat(!LINUX) => file::exists(p);
+fn bool is_dir(String p) @feat(!LINUX) => file::is_dir(p);
+fn bool is_file(String p) @feat(!LINUX) => file::is_file(p);
+fn bool is_exec(String p) @feat(!LINUX) => is_file(p);
 
-fn bool exists(String p) @if(env::LINUX) => @pool()
+fn bool exists(String p) @feat(LINUX) => @pool()
 {
 	libc::Stat st;
 	return libc::stat(p.zstr_tcopy(), &st) == 0;
 }
 
-fn bool is_dir(String p) @if(env::LINUX) => @pool()
+fn bool is_dir(String p) @feat(LINUX) => @pool()
 {
 	libc::Stat st;
 	if (libc::stat(p.zstr_tcopy(), &st) != 0) return false;
 	return (st.st_mode & 0xF000) == 0x4000;
 }
 
-fn bool is_file(String p) @if(env::LINUX) => @pool()
+fn bool is_file(String p) @feat(LINUX) => @pool()
 {
 	libc::Stat st;
 	if (libc::stat(p.zstr_tcopy(), &st) != 0) return false;
 	return (st.st_mode & 0xF000) == 0x8000;
 }
 
-fn bool is_exec(String p) @if(env::LINUX) => @pool()
+fn bool is_exec(String p) @feat(LINUX) => @pool()
 {
 	return is_file(p) && c_access(p.zstr_tcopy(), X_OK) == 0;
 }
 
 // mkdir -p
-fn bool mkdirs(String p) @if(!env::LINUX)
+fn bool mkdirs(String p) @feat(!LINUX)
 {
 	if (p.len == 0) return false;
 	if (is_dir(p)) return true;
@@ -96,7 +96,7 @@ fn bool mkdirs(String p) @if(!env::LINUX)
 	return is_dir(p);
 }
 
-fn bool mkdirs(String p) @if(env::LINUX) => @pool()
+fn bool mkdirs(String p) @feat(LINUX) => @pool()
 {
 	if (p.len == 0) return false;
 	if (is_dir(p)) return true;
@@ -117,7 +117,7 @@ fn bool mkdirs(String p) @if(env::LINUX) => @pool()
 }
 
 // Resolve symlinks / "..". Falls back to the input when the path does not exist.
-fn void realpath(char[] out, String p) @if(!env::LINUX) => @pool()
+fn void realpath(char[] out, String p) @feat(!LINUX) => @pool()
 {
 	if (try r = p.to_absolute_path(tmem)) p = (String)r;
 	txt::set(out, p);
@@ -126,7 +126,7 @@ fn void realpath(char[] out, String p) @if(!env::LINUX) => @pool()
 	$endif
 }
 
-fn void realpath(char[] out, String p) @if(env::LINUX) => @pool()
+fn void realpath(char[] out, String p) @feat(LINUX) => @pool()
 {
 	char[4096] tmp;
 	ZString r = c_realpath(p.zstr_tcopy(), &tmp);
@@ -162,7 +162,7 @@ struct Entry
  List `dir` into `out`, directories first, alphabetical.
  @return "number of entries written"
 *>
-fn int list_dir(String dir, Entry[] out, bool hidden) @if(!env::LINUX) => @pool()
+fn int list_dir(String dir, Entry[] out, bool hidden) @feat(!LINUX) => @pool()
 {
 	if (!is_dir(dir)) return -1;
 	PathList? list = path::ls(tmem, path::tnew(dir) ?? (Path)".");
@@ -182,7 +182,7 @@ fn int list_dir(String dir, Entry[] out, bool hidden) @if(!env::LINUX) => @pool(
 	return n;
 }
 
-fn int list_dir(String dir, Entry[] out, bool hidden) @if(env::LINUX) => @pool()
+fn int list_dir(String dir, Entry[] out, bool hidden) @feat(LINUX) => @pool()
 {
 	void* d = c_opendir(dir.zstr_tcopy());
 	if (!d) return -1;

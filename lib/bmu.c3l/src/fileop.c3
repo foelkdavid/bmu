@@ -1,4 +1,4 @@
-module bmu::fileop @if(env::LINUX);
+module bmu::fileop @feat(LINUX);
 import std::thread, std::core::string, std::math, libc;
 import bmu::txt, bmu::sys, bmu::archive;
 

@@ -227,7 +227,7 @@ fn String gl_string(CUInt name) @private
 fn String gpu() => gl_string(0x1F01);
 fn String gl_version() => gl_string(0x1F02);
 
-extern fn CInt bmu_set_clipboard_data(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuSetClipboardData") @private @if(env::LINUX);
+extern fn CInt bmu_set_clipboard_data(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuSetClipboardData") @private @feat(LINUX);
 
 <*
  Put data in other formats on the clipboard, e.g. { "image/png", "text/uri-list" } with the PNG bytes and
@@ -235,9 +235,9 @@ extern fn CInt bmu_set_clipboard_data(CInt count, ZString* mimes, void** datas, 
  thread. Wayland: the data is served while the app runs (a clipboard manager keeps it afterwards).
  Text keeps working through rl::set_clipboard_text, which replaces this.
 *>
-fn bool clipboard_set_data(String[] mimes, char[][] datas) @if(!env::LINUX) => false;   // the GLFW patch is Wayland's
+fn bool clipboard_set_data(String[] mimes, char[][] datas) @feat(!LINUX) => false;   // the GLFW patch is Wayland's
 
-fn bool clipboard_set_data(String[] mimes, char[][] datas) @if(env::LINUX) => @pool()
+fn bool clipboard_set_data(String[] mimes, char[][] datas) @feat(LINUX) => @pool()
 {
 	if (!mimes.len || mimes.len != datas.len || mimes.len > 4) return false;
 	ZString[4] m;

@@ -1,4 +1,4 @@
-module bmu::image @if(env::LINUX);
+module bmu::image @feat(LINUX);
 import std::thread, libc;
 import raylib6::rl;
 import bmu::txt, bmu::sys;

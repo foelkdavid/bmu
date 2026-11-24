@@ -662,11 +662,11 @@ fn void select_word(char[] buf, usz at)
  Single line text field. Returns true when the content changed.
  `submitted` (optional) is set when Enter was pressed.
 *>
-extern fn void explicit_bzero(void* p, usz n) @cname("explicit_bzero") @private @if(env::LINUX);
+extern fn void explicit_bzero(void* p, usz n) @cname("explicit_bzero") @private @feat(LINUX);
 
 <* Zero a buffer (e.g. a password) in a way the compiler cannot drop. *>
-fn void wipe(char[] buf) @if(env::LINUX) => explicit_bzero(buf.ptr, buf.len);
-fn void wipe(char[] buf) @if(!env::LINUX)
+fn void wipe(char[] buf) @feat(LINUX) => explicit_bzero(buf.ptr, buf.len);
+fn void wipe(char[] buf) @feat(!LINUX)
 {
 	foreach (&c : buf) @volatile_store(*c, (char)0);   // volatile: not optimised away
 }
