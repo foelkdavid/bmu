@@ -4,7 +4,58 @@
     "linux-x64": {
       "link-args": [],
       "dependencies": [],
-      "linked-libraries": ["raylib", "m"]
+      "linked-libraries": [
+        "raylib",
+        "m"
+      ]
+    },
+    "windows-x64": {
+      "link-args": [],
+      "dependencies": [],
+      "linked-libraries": [
+        "raylib",
+        "opengl32",
+        "gdi32",
+        "winmm",
+        "user32",
+        "shell32"
+      ]
+    },
+    "macos-x64": {
+      "link-args": [
+        "-framework",
+        "OpenGL",
+        "-framework",
+        "Cocoa",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "CoreAudio",
+        "-framework",
+        "CoreVideo"
+      ],
+      "dependencies": [],
+      "linked-libraries": [
+        "raylib"
+      ]
+    },
+    "macos-aarch64": {
+      "link-args": [
+        "-framework",
+        "OpenGL",
+        "-framework",
+        "Cocoa",
+        "-framework",
+        "IOKit",
+        "-framework",
+        "CoreAudio",
+        "-framework",
+        "CoreVideo"
+      ],
+      "dependencies": [],
+      "linked-libraries": [
+        "raylib"
+      ]
     }
   }
 }

@@ -1,7 +1,12 @@
 {
   "provides": "bmu",
-  "sources": ["src/**"],
+  "sources": [
+    "src/**"
+  ],
   "targets": {
-    "linux-x64": {}
+    "linux-x64": {},
+    "macos-x64": {},
+    "macos-aarch64": {},
+    "windows-x64": {}
   }
 }

@@ -1,4 +1,4 @@
-module bmu::archive;
+module bmu::archive @if(env::LINUX);
 import std::thread, std::os, std::sort, std::math, libc;
 import bmu::txt, bmu::sys;
 

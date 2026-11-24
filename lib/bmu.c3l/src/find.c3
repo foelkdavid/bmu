@@ -1,4 +1,4 @@
-module bmu::find;
+module bmu::find @if(env::LINUX);
 import std::thread, std::math, libc;
 import bmu::txt, bmu::sys;
 

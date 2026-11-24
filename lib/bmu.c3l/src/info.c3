@@ -1,5 +1,5 @@
 module bmu::ui;
-import std::math, std::core::string;
+import std::math, std::core::string, std::os::env;
 import raylib6::rl;
 import bmu::txt;
 
@@ -63,7 +63,7 @@ fn void about_add(String key, String value)
 	about_count++;
 }
 
-extern fn sz about_readlink(ZString path, char* buf, usz size) @cname("readlink") @private;
+extern fn sz about_readlink(ZString path, char* buf, usz size) @cname("readlink") @private @if(env::LINUX);
 
 <* Start the About rows: version, display backend, GLFW, raylib, GPU, OpenGL, monitor, UI scale, binary. *>
 fn void about_reset(String app, String version) => @pool()
@@ -77,9 +77,13 @@ fn void about_reset(String app, String version) => @pool()
 	about_add("OpenGL", gl_version());
 	about_add("Monitor", string::tformat("%s · %d × %d @ %d Hz", rl::get_monitor_name(0).str_view(), rl::get_monitor_width(0), rl::get_monitor_height(0), rl::get_monitor_refresh_rate(0)));
 	about_add("Interface", string::tformat("%d%% · display %d%%", (int)(scale * 100 + 0.5f), (int)(dpi * 100 + 0.5f)));
-	char[4096] exe;
-	sz n = about_readlink("/proc/self/exe", &exe, exe.len - 1);
-	about_add("Binary", n > 0 ? (String)exe[:(usz)n] : "unknown");
+	$if env::LINUX:
+		char[4096] exe;
+		sz n = about_readlink("/proc/self/exe", &exe, exe.len - 1);
+		about_add("Binary", n > 0 ? (String)exe[:(usz)n] : "unknown");
+	$else
+		about_add("Binary", std::os::env::executable_path() ?? "unknown");
+	$endif
 }
 
 <* Key / value rows; long values show their end (paths). *>
