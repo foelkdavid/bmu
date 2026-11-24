@@ -97,6 +97,7 @@ fn void main(String[] args)
 | `text(s, x, y, size=15, color=FG)`, `text_w(s, size=15)` | draw / measure (UTF-8) |
 | `text_fit(s, x, y, w, size, color)` / `text_tail(...)` | cut the end with … / show only the end (paths) |
 | `label(x, y, s)` | 14 px FG4 caption |
+| `text_wrap(s, x, y, w, size=15, color=FG, line_h=0) -> height`, `wrap_height(s, w, size)`, `wrap(s, w, size, Line[] out) -> count`, `line_height(size)`, `span_w(s, size)` | word-wrapped text (draws only visible lines) / its height / the line byte ranges |
 | `panel(r, color, round=0)`, `outline(r, color, round=0, thick=1)`, `hline(x, y, w, color=BG1)` | rectangles (round = corner radius in px) |
 | `begin_clip(r)` / `end_clip()` | scissor + restrict hover to `r` (scroll areas) |
 | `tile(r, tex*, name)` | texture fit into `r`, or a coloured letter tile when `tex` is null |
@@ -109,6 +110,7 @@ fn void main(String[] args)
 | `section(x, y, w, title, &open, detail="") -> bool` | collapsible heading (chevron, 22 px); true when toggled; draw rows only while `open` |
 | `input(id, r, &buf, placeholder="", &submitted=null, icon="") -> bool` | one-line editor; true when text changed; `submitted` set on Enter |
 | `input_arrows_free`, `input_replace(&buf, s)` | keep Up/Down for a suggestion list / replace text, caret to end |
+| `text_area(id, r, &buf, placeholder="", &submitted=null, enter_submits=false, size=15) -> bool` | multi-line editor: wrap, scroll, selection, undo; Enter = new line (or submit with `enter_submits`, Shift+Enter = new line); Ctrl+Enter submits |
 | `secret_input(id, r, &buf, placeholder, &submitted) -> bool`, `wipe(&buf)` | password field (bullets, no copy/undo) / zero a buffer for good |
 | `dropdown(id, r, items, &sel) -> bool` | `String[] items`, `int sel`; true the frame after a choice |
 | `menu_open(id, x=-1, y=-1)`; `if (menu_begin(id, w=240)) { menu_item(label, icon="", keys="", enabled=true) -> bool; menu_sep(); menu_end(); }` | right-click menu; draw it after the other widgets; owns input while open |
@@ -118,7 +120,7 @@ fn void main(String[] args)
 | `focus`, `focused(id)`, `focus_on(id, &buf)`, `unfocus()` | text focus (−1 = none); focus_on selects all |
 | `letter('f')`, `ctrl_down()`, `shift_down()`, `repeat(key)` | layout-safe letter press; modifiers; press + auto-repeat |
 | `load_font(extra={})`, `map_layout()` | done by `open()`; fonts use cached native-pixel atlases (first use of a size bakes it); reload to add glyphs |
-| **colours / icons** | `BG_HARD BG BG1 BG2 BG3 BG4 FG FG4 GRAY RED GREEN YELLOW BLUE PURPLE AQUA ORANGE DIM_RED DIM_GREEN DIM_YELLOW`; `I_PLAY I_STOP I_PLUS I_FOLDER I_FOLDER_OPEN I_FILE I_GEAR I_SEARCH I_TRASH I_UP I_HOME I_HDD I_GAMEPAD I_WINDOWS I_CLOCK I_CHECK I_TIMES I_DOWN I_RIGHT I_REFRESH I_TERMINAL I_IMAGE I_WRENCH I_STEAM I_BOLT I_WARN I_INFO I_LIST I_EYE I_STAR I_EYE_OFF I_MENU I_COPY I_CUT I_PASTE I_EDIT I_BACK I_FORWARD I_LEFT I_GRID I_BOOKMARK I_LINK I_LOCK I_EXTERNAL I_UNDO I_SORT_UP I_SORT_DOWN I_DESKTOP I_DOWNLOAD I_MUSIC I_VIDEO I_FILE_TEXT I_FILE_IMAGE I_FILE_AUDIO I_FILE_VIDEO I_FILE_ARCHIVE I_FILE_CODE I_FILE_PDF I_MIC I_VOLUME I_MUTE I_RECORD I_PAUSE I_REPEAT I_SLIDERS I_HEADPHONES` |
+| **colours / icons** | `BG_HARD BG BG1 BG2 BG3 BG4 FG FG4 GRAY RED GREEN YELLOW BLUE PURPLE AQUA ORANGE DIM_RED DIM_GREEN DIM_YELLOW`; `I_PLAY I_STOP I_PLUS I_FOLDER I_FOLDER_OPEN I_FILE I_GEAR I_SEARCH I_TRASH I_UP I_HOME I_HDD I_GAMEPAD I_WINDOWS I_CLOCK I_CHECK I_TIMES I_DOWN I_RIGHT I_REFRESH I_TERMINAL I_IMAGE I_WRENCH I_STEAM I_BOLT I_WARN I_INFO I_LIST I_EYE I_STAR I_EYE_OFF I_MENU I_COPY I_CUT I_PASTE I_EDIT I_BACK I_FORWARD I_LEFT I_GRID I_BOOKMARK I_LINK I_LOCK I_EXTERNAL I_UNDO I_SORT_UP I_SORT_DOWN I_DESKTOP I_DOWNLOAD I_MUSIC I_VIDEO I_FILE_TEXT I_FILE_IMAGE I_FILE_AUDIO I_FILE_VIDEO I_FILE_ARCHIVE I_FILE_CODE I_FILE_PDF I_MIC I_VOLUME I_MUTE I_RECORD I_PAUSE I_REPEAT I_SLIDERS I_HEADPHONES I_USER I_USERS I_CHAT I_GLOBE I_SEND I_BOOK` |
 | **picker** (`picker::`) | |
 | `start(why, FILE\|DIR, title, start_dir, filter={})` | open; `filter` = `String[]` like `{ ".png", ".jpg" }` |
 | `open`, `draw()` | is it showing / draw it on layer 1 |

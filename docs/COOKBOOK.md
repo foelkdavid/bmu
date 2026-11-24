@@ -488,6 +488,60 @@ fn void mic_panel(float x, float y)
 // On exit: mic_dev.close();
 ```
 
+## A chat log with a multi-line message box
+
+Messages of any length, wrapped to the window width; heights are cached per message and width, so scrolling a long
+log only lays out what is on screen. The box sends on Enter (Shift+Enter breaks the line).
+
+```c3
+const int ID_CHAT_BOX = 40;
+const int MAX_CHAT = 256;
+struct ChatLine
+{
+	char[2048] text;
+	float h;          // cached height (0 = measure again)
+	float h_width;    // width it was measured for
+}
+ChatLine[MAX_CHAT] chat_log;
+int chat_count;
+float chat_scroll;
+char[2048] chat_box;
+
+fn void chat_view(Rect r) => @pool()
+{
+	Rect log = { r.x, r.y, r.width, r.height - 96 };
+	float tw = log.width - 40;
+	float content = 0;
+	for (int i = 0; i < chat_count; i++)
+	{
+		ChatLine* m = &chat_log[i];
+		if (m.h_width != tw) { m.h = ui::wrap_height(txt::view(&m.text), tw) + 16; m.h_width = tw; }
+		content += m.h;
+	}
+	chat_scroll = ui::scroll_wheel(log, chat_scroll, content);
+	ui::begin_clip(log);
+	float y = log.y - chat_scroll;
+	for (int i = 0; i < chat_count; i++)
+	{
+		ChatLine* m = &chat_log[i];
+		if (y + m.h >= log.y && y <= log.y + log.height) ui::text_wrap(txt::view(&m.text), log.x + 20, y + 8, tw);
+		y += m.h;
+	}
+	ui::end_clip();
+	ui::scrollbar(log, chat_scroll, content);
+
+	bool send = false;
+	ui::text_area(ID_CHAT_BOX, { r.x + 10, r.y + r.height - 86, r.width - 20, 76 }, &chat_box, "Message (Enter sends)", &send, enter_submits: true);
+	if (send && !txt::empty(&chat_box) && chat_count < MAX_CHAT)
+	{
+		chat_log[chat_count++] = {};
+		txt::set(&chat_log[chat_count - 1].text, txt::view(&chat_box));
+		txt::set(&chat_box, "");
+		chat_scroll = 1e9f;     // scroll_wheel clamps: jump to the end
+	}
+}
+```
+
 ## A custom widget
 
 Use `hover`/`clicked`, set the cursor, draw with `panel`/`text`. This one is a segmented toggle.

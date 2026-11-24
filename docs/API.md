@@ -104,7 +104,11 @@ the requested display size.
 | `fn void text_fit(String s, float x, float y, float w, float size = 15, Color color = FG)` | Like `text`, cut to width `w` with a trailing `…` (UTF-8 safe). |
 | `fn void text_tail(String s, float x, float y, float w, float size = 15, Color color = FG)` | Shows only the end, prefixed with `…` (for paths). |
 | `fn void label(float x, float y, String s)` | 14 px, `FG4`: the caption left of a field. |
-| `fn void load_font(int[] extra = {})` | Reset the atlas cache and bake the default body-size font; other sizes bake on first use. Codepoints included: ASCII 32–126, Latin-1 160–255, the `I_*` icons, `•` `—` `…` `·`, and `extra`. **A glyph not baked shows as `?`.** `open()` calls it with no extras; to add glyphs call `ui::unload_font(); ui::load_font(&my_codepoints);` after `open()`. |
+| `fn float text_wrap(String s, float x, float y, float w, float size = 15, Color color = FG, float line_h = 0) -> float` | Word-wrapped text (breaks at `\n`, after the last space that fits, inside over-long words); returns the height. Only lines inside the clip (`begin_clip`) or the window are drawn. `line_h` 0 = `line_height(size)`. At most `WRAP_LINES` (4096) lines. |
+| `fn int wrap(String s, float w, float size, Line[] out) -> int` | The line breaks themselves: fills `out` with `Line { usz start; usz end; }` byte ranges (the break character is in no line) and returns the total count (≥ 1, may exceed `out.len`; pass `{}` to only count). |
+| `fn float wrap_height(String s, float w, float size = 15, float line_h = 0)` | Height `text_wrap` would use. Cache it per item and width for long lists (it walks the whole text). |
+| `fn float line_height(float size = 15)` / `fn float span_w(String s, float size = 15)` | Default wrapped line height (`round(size*1.4)`) / width like `text_w` (text without `\n`), from a cached advance table instead of a measured copy. |
+| `fn void load_font(int[] extra = {})` | Reset the atlas cache and bake the default body-size font; other sizes bake on first use. Codepoints included: ASCII 32–126, Latin-1 160–255, the `I_*` icons, `•` `—` `–` `…` `·` `‘` `’` `“` `”`, and `extra`. **A glyph not baked shows as `?`.** `open()` calls it with no extras; to add glyphs call `ui::unload_font(); ui::load_font(&my_codepoints);` after `open()`. |
 | `fn void unload_font()` | Free all cached atlases (safe to call again). `bool has_font` tells whether it loaded (else raylib's default font is used). |
 
 Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
@@ -127,7 +131,8 @@ Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
 | `I_FILE_IMAGE` | `I_FILE_AUDIO` | `I_FILE_VIDEO` | `I_FILE_ARCHIVE` |
 | `I_FILE_CODE` | `I_FILE_PDF` | `I_MIC` | `I_VOLUME` |
 | `I_MUTE` (speaker off) | `I_RECORD` (filled circle) | `I_PAUSE` | `I_REPEAT` (loop) |
-| `I_SLIDERS` | `I_HEADPHONES` | | |
+| `I_SLIDERS` | `I_HEADPHONES` | `I_USER` | `I_USERS` |
+| `I_CHAT` (speech bubbles) | `I_GLOBE` | `I_SEND` (paper plane) | `I_BOOK` |
 
 To add one: find its codepoint (e.g. on nerdfonts.com/cheat-sheet), add the `String` constant (`"\uF0C7"`: C3 escapes are `\uXXXX`, not `\u{...}`) and pass
 the codepoint to `load_font`. To add it to the library, append to `ICON_CODEPOINTS` and the `I_*` list in `ui.c3`.
@@ -247,6 +252,18 @@ Text size inside inputs is fixed at 15 px. Undo snapshots hold 1023 bytes: longe
 per character with a lock icon. Typing and paste append; Backspace, Ctrl+Backspace and Ctrl+U delete; Enter sets
 `submitted`. No caret movement, selection, copy or undo history: the secret lives only in `buf`.
 `fn void wipe(char[] buf)` zeroes a buffer with `explicit_bzero` (not optimized away): call it when the dialog closes.
+
+### Multi-line text
+
+`fn bool text_area(int id, Rect r, char[] buf, String placeholder = "", bool* submitted = null, bool enter_submits = false, float size = 15)`
+is an editor for longer text (notes, descriptions, chat messages): word wrap to the field width, vertical scrolling
+(wheel anywhere over the field, and it follows the caret), mouse selection (drag, double-click word, triple-click
+line), Up/Down/PageUp/PageDown by visual line, Home/End (Ctrl: whole text), clipboard (pasted tabs become spaces,
+`\r` is dropped) and undo/redo. Returns true when the text changed. Enter inserts a line break; with `enter_submits`
+Enter sets `submitted` instead and Shift+Enter breaks the line (a chat box). Ctrl+Enter always sets `submitted`.
+It shares focus, ids and the caret with `input` (one focused field at a time); its scroll offset is kept per id
+(16 most recent ids). Undo has its own history of 16 steps, recorded only while the text is under 16 KiB.
+Size the buffer for the use (`char[8192]` for a long description).
 
 ### Completions under an input
 
@@ -445,6 +462,7 @@ File system, Trash, no saved places. Each change saves at once (atomic rename); 
 | what | limit |
 |---|---|
 | input text | `buf.len − 1` bytes; undo/redo 48 steps of ≤1023 bytes |
+| text_area | `buf.len − 1` bytes; 4096 visual lines shown (`WRAP_LINES`, also for `text_wrap`); undo/redo 16 steps while under 16 KiB; scroll offsets for 16 ids |
 | dropdown | 64 items, 8 KB of item text |
 | context menu | 32 rows (items + separators), 4 KB of label text |
 | tooltip / toast | 255 / 511 bytes |

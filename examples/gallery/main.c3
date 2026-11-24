@@ -12,6 +12,7 @@ import bmu::ui, bmu::txt, bmu::sys, bmu::picker;
 const int ID_SEARCH = 1;
 const int ID_PATH = 2;
 const int ID_NOTE = 3;
+const int ID_STORY = 4;
 
 // picker purposes: what the picker was opened for
 const int PICK_FILE = 1;
@@ -23,6 +24,7 @@ const int MENU_ITEM = 1;
 char[128] search;
 char[1024] path;
 char[256] note;
+char[4096] story = "A multi-line text_area: it wraps long lines at word boundaries, keeps line breaks,\nscrolls with the wheel and follows the caret.\n\nEnter breaks the line; Ctrl+Enter submits.";
 bool opt_a = true;
 float level = 0.6f;
 bool opt_b;
@@ -144,6 +146,10 @@ fn void draw_main() => @pool()
 	ui::text(ui::I_VOLUME, x, y + 7, 14, ui::FG4);
 	ui::slider({ x + 22, y, 200, 28 }, &level, 0, 1, "Slider: drag or wheel");
 	ui::text(string::tformat("%d%%", (int)math::round(level * 100)), x + 232, y + 6, 14, ui::GRAY);
+	y += 40;
+	bool story_sent = false;
+	ui::text_area(ID_STORY, { x, y, 600, math::max(80.0f, ui::sh() - y - 16) }, &story, "Write something…", &story_sent);
+	if (story_sent) ui::toast(string::tformat("Ctrl+Enter: %d bytes", txt::view(&story).len));
 }
 
 fn void draw_menu() => @pool()

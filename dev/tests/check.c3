@@ -28,6 +28,7 @@ fn int main(String[] args)
 	check_txt();
 	check_sys();
 	check_edit();
+	check_wrap();
 	check_fileop();
 	check_find();
 	check_elevated();
@@ -158,6 +159,27 @@ fn void check_edit()
 	txt::set(&tiny, "ab");
 	ui::caret = 2;
 	expect(!ui::insert_byte(&tiny, 'c'), "insert_byte refuses when full");
+}
+
+fn void check_wrap()
+{
+	// headless: a fake advance table (every glyph 10 px at size 15) stands in for the font
+	ui::adv_cache[0].size = 15;
+	ui::adv_cache[0].px_at = ui::px;
+	for (int c = 32; c < 256; c++) ui::adv_cache[0].adv[c] = 10;
+	ui::Line[8] l;
+	expect(ui::wrap("hello world foo", 60, 15, &l) == 3, "wrap: three lines");
+	expect(l[0].start == 0 && l[0].end == 5 && l[1].start == 6 && l[1].end == 11 && l[2].start == 12 && l[2].end == 15, "wrap: breaks at spaces");
+	expect(ui::wrap("abcdefghij", 35, 15, &l) == 4 && l[1].start == 3 && l[1].end == 6 && l[3].end == 10, "wrap: long word split");
+	expect(ui::wrap("ab\n\ncd", 100, 15, &l) == 3 && l[1].start == 3 && l[1].end == 3 && l[2].start == 4, "wrap: newlines, empty line");
+	expect(ui::wrap("", 100, 15, &l) == 1 && l[0].end == 0, "wrap: empty text is one line");
+	expect(ui::wrap("a b c d e f g h i j k", 30, 15, {}) == 6, "wrap: count only");
+	expect(ui::span_w("abc", 15) == 30, "span_w");
+	expect(ui::wrap_height("abcdef", 30, 15, 20) == 40, "wrap_height");
+	usz n;
+	expect(ui::utf8_at("é", 0, &n) == 0xE9 && n == 2, "utf8_at 2 bytes");
+	expect(ui::utf8_at("\xFFx", 0, &n) == '?' && n == 1, "utf8_at invalid byte");
+	ui::adv_cache[0].size = 0;
 }
 
 fn void check_app_id() => @pool()
