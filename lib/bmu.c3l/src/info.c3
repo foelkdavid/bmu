@@ -50,7 +50,7 @@ fn float shortcut_table(Rect area, Shortcut[] rows, float scroll)
 }
 
 <* bmu library version (= bmu project.json "version"; bmu-check verifies they match). *>
-const String VERSION = "0.1.31";
+const String VERSION = "0.1.32";
 
 // About panel: standard rows + the app's own. Collect when the panel opens (cheap, but not per frame).
 const int ABOUT_MAX = 20;

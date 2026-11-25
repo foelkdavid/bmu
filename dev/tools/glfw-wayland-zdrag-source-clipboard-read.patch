@@ -2,7 +2,24 @@
 # drop from another bmu app (bmuDropAction, carried as application/x-bmu-drag-action), own drops served from
 # memory, file-only selections kept, clipboard ownership (bmuClipboardOwned), data-offer reads that give up after
 # 0.5 s without data (an unresponsive owner used to hang the app) and never ask for formats the owner doesn't
-# offer. Named 'z…' so it applies after the other glfw-wayland patches. Applied by build-raylib.sh.
+# offer. Data device v3 (was v1): drop targets set actions and finish the drop, drag sources set actions and end
+# on dnd_finished, or once a v1 target read the file list. Hyprland keeps a v1 drop "active" forever and then
+# gives no window pointer focus or clicks (the apps looked frozen after a drag out of the window).
+# Named 'z…' so it applies after the other glfw-wayland patches. Applied by build-raylib.sh.
+diff --git a/src/external/glfw/src/wl_init.c b/src/external/glfw/src/wl_init.c
+index eee9cc6..c74dfff 100644
+--- a/src/external/glfw/src/wl_init.c
++++ b/src/external/glfw/src/wl_init.c
+@@ -146,7 +146,8 @@ static void registryHandleGlobal(void* userData,
+         {
+             _glfw.wl.dataDeviceManager =
+                 wl_registry_bind(registry, name,
+-                                 &wl_data_device_manager_interface, 1);
++                                 &wl_data_device_manager_interface,
++                                 _glfw_min(3, version));   // bmu patch: v3 drag-and-drop (actions, finish)
+         }
+     }
+     else if (strcmp(interface, "xdg_wm_base") == 0)
 diff --git a/src/external/glfw/src/wl_platform.h b/src/external/glfw/src/wl_platform.h
 index 149cd24..63184aa 100644
 --- a/src/external/glfw/src/wl_platform.h
@@ -17,10 +34,10 @@ index 149cd24..63184aa 100644
  
  typedef struct _GLFWscaleWayland
 diff --git a/src/external/glfw/src/wl_window.c b/src/external/glfw/src/wl_window.c
-index 2afc8de..e9c34c0 100644
+index 2afc8de..c2dc29b 100644
 --- a/src/external/glfw/src/wl_window.c
 +++ b/src/external/glfw/src/wl_window.c
-@@ -46,6 +46,14 @@
+@@ -46,6 +46,22 @@
  #include <linux/input-event-codes.h>
  
  #include "wayland-client-protocol.h"
@@ -32,10 +49,18 @@ index 2afc8de..e9c34c0 100644
 +static GLFWbool bmuSelectionText, bmuSelectionUris, bmuSelectionGnome;   // formats the current selection offers
 +static char bmuDropActionText[16];
 +static void bmuDropOwn(_GLFWwindow* window);
++
++// bmu patch: tell the compositor the drop is done (v3). Without it Hyprland keeps the drag active and refuses
++// pointer focus and clicks to every window until the drag source goes away.
++static void bmuDropFinish(void)
++{
++    if (_glfw.wl.dragOffer && wl_proxy_get_version((struct wl_proxy*) _glfw.wl.dragOffer) >= 3)
++        wl_data_offer_finish(_glfw.wl.dragOffer);
++}
  #include "xdg-shell-client-protocol.h"
  #include "xdg-decoration-unstable-v1-client-protocol.h"
  #include "viewporter-client-protocol.h"
-@@ -1340,6 +1348,19 @@ static char* readDataOfferAsString(struct wl_data_offer* offer, const char* mime
+@@ -1340,6 +1356,19 @@ static char* readDataOfferAsString(struct wl_data_offer* offer, const char* mime
              size = requiredSize;
          }
  
@@ -55,7 +80,7 @@ index 2afc8de..e9c34c0 100644
          const ssize_t result = read(fds[0], string + length, readSize);
          if (result == 0)
              break;
-@@ -1541,6 +1562,9 @@ static void pointerHandleButton(void* userData,
+@@ -1541,6 +1570,9 @@ static void pointerHandleButton(void* userData,
      if (!window)
          return;
  
@@ -65,7 +90,7 @@ index 2afc8de..e9c34c0 100644
      if (window->wl.hovered)
      {
          _glfw.wl.serial = serial;
-@@ -1931,6 +1955,10 @@ static void dataOfferHandleOffer(void* userData,
+@@ -1931,15 +1963,25 @@ static void dataOfferHandleOffer(void* userData,
                  _glfw.wl.offers[i].text_plain_utf8 = GLFW_TRUE;
              else if (strcmp(mimeType, "text/uri-list") == 0)
                  _glfw.wl.offers[i].text_uri_list = GLFW_TRUE;
@@ -76,7 +101,23 @@ index 2afc8de..e9c34c0 100644
  
              break;
          }
-@@ -1994,6 +2022,7 @@ static void dataDeviceHandleEnter(void* userData,
+     }
+ }
+ 
++// bmu patch: data device v3 events (the copy/move intent travels as application/x-bmu-drag-action instead)
++static void dataOfferHandleSourceActions(void* userData, struct wl_data_offer* offer, uint32_t actions) {}
++static void dataOfferHandleAction(void* userData, struct wl_data_offer* offer, uint32_t action) {}
++
+ static const struct wl_data_offer_listener dataOfferListener =
+ {
+-    dataOfferHandleOffer
++    dataOfferHandleOffer,
++    dataOfferHandleSourceActions,
++    dataOfferHandleAction,
+ };
+ 
+ static void dataDeviceHandleDataOffer(void* userData,
+@@ -1994,6 +2036,7 @@ static void dataDeviceHandleEnter(void* userData,
                  _glfw.wl.dragOffer = offer;
                  _glfw.wl.dragFocus = window;
                  _glfw.wl.dragSerial = serial;
@@ -84,7 +125,19 @@ index 2afc8de..e9c34c0 100644
              }
  
              _glfw.wl.offers[i] = _glfw.wl.offers[_glfw.wl.offerCount - 1];
-@@ -2047,6 +2076,23 @@ static void dataDeviceHandleDrop(void* userData,
+@@ -2008,6 +2051,11 @@ static void dataDeviceHandleEnter(void* userData,
+     if (_glfw.wl.dragOffer)
+     {
+         wl_data_offer_accept(offer, serial, "text/uri-list");
++        // bmu patch: v3 offers need an action, or the drop is refused; the app decides copy/move itself
++        if (wl_proxy_get_version((struct wl_proxy*) offer) >= 3)
++            wl_data_offer_set_actions(offer,
++                                      WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE,
++                                      WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
+         // bmu patch: pointer events stop during a drag; report the drag position as the cursor position
+         _glfwInputCursorPos(_glfw.wl.dragFocus, wl_fixed_to_double(x), wl_fixed_to_double(y));
+     }
+@@ -2047,6 +2095,24 @@ static void dataDeviceHandleDrop(void* userData,
      if (!_glfw.wl.dragOffer)
          return;
  
@@ -92,6 +145,7 @@ index 2afc8de..e9c34c0 100644
 +    if (bmuDragSource)
 +    {
 +        bmuDropOwn(_glfw.wl.dragFocus);
++        bmuDropFinish();
 +        return;
 +    }
 +    bmuDropActionText[0] = 0;
@@ -108,7 +162,15 @@ index 2afc8de..e9c34c0 100644
      char* string = readDataOfferAsString(_glfw.wl.dragOffer, "text/uri-list");
      if (string)
      {
-@@ -2073,13 +2119,20 @@ static void dataDeviceHandleSelection(void* userData,
+@@ -2062,6 +2128,7 @@ static void dataDeviceHandleDrop(void* userData,
+     }
+ 
+     _glfw_free(string);
++    bmuDropFinish();
+ }
+ 
+ static void dataDeviceHandleSelection(void* userData,
+@@ -2073,13 +2140,20 @@ static void dataDeviceHandleSelection(void* userData,
          wl_data_offer_destroy(_glfw.wl.selectionOffer);
          _glfw.wl.selectionOffer = NULL;
      }
@@ -130,7 +192,27 @@ index 2afc8de..e9c34c0 100644
              else
                  wl_data_offer_destroy(offer);
  
-@@ -3276,7 +3329,7 @@ int bmuSetClipboardData(int count, const char* const* mimes, const void* const*
+@@ -3219,11 +3293,19 @@ static void dataSourceHandleCancelled(void* userData,
+     _glfw.wl.selectionSource = NULL;
+ }
+ 
++// bmu patch: v3 drag-and-drop events (selection sources never get them; the listener must be complete)
++static void bmuSourceDropPerformed(void* userData, struct wl_data_source* source) {}
++static void bmuSourceDndFinished(void* userData, struct wl_data_source* source) {}
++static void bmuSourceAction(void* userData, struct wl_data_source* source, uint32_t action) {}
++
+ static const struct wl_data_source_listener dataSourceListener =
+ {
+     dataSourceHandleTarget,
+     dataSourceHandleSend,
+     dataSourceHandleCancelled,
++    bmuSourceDropPerformed,
++    bmuSourceDndFinished,
++    bmuSourceAction,
+ };
+ 
+ void _glfwSetClipboardStringWayland(const char* string)
+@@ -3276,7 +3358,7 @@ int bmuSetClipboardData(int count, const char* const* mimes, const void* const*
      for (int i = 0; i < count; i++)
      {
          bmuClipMime[i] = _glfw_strdup(mimes[i]);
@@ -139,7 +221,7 @@ index 2afc8de..e9c34c0 100644
          if (!bmuClipMime[i] || !bmuClipData[i])
          {
              bmuClipCount = i + 1;
-@@ -3309,7 +3362,16 @@ const char* _glfwGetClipboardStringWayland(void)
+@@ -3309,7 +3391,16 @@ const char* _glfwGetClipboardStringWayland(void)
      }
  
      if (_glfw.wl.selectionSource)
@@ -156,7 +238,7 @@ index 2afc8de..e9c34c0 100644
  
      _glfw_free(_glfw.wl.clipboardString);
      _glfw.wl.clipboardString =
-@@ -3434,3 +3496,180 @@ GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* handle)
+@@ -3434,3 +3525,194 @@ GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* handle)
  
  #endif // _GLFW_WAYLAND
  
@@ -206,9 +288,17 @@ index 2afc8de..e9c34c0 100644
 +    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 +    if (pthread_create(&thread, &attr, bmuClipWriter, w) != 0) bmuClipWriter(w);
 +    pthread_attr_destroy(&attr);
++    // The target read the file list: the drop happened. A data device v1 target (older GLFW/SDL apps) never says
++    // it is done, and Hyprland then keeps the drag active (no pointer focus, no clicks for any window) until the
++    // source goes away: end the drag ourselves. The writer thread has its own copy of the data.
++    if (strcmp(mimeType, "text/uri-list") == 0)
++    {
++        bmuDragSource = NULL;
++        wl_data_source_destroy(source);
++    }
 +}
 +
-+// Version 1 sources are cancelled when the drag ends (dropped somewhere or given up).
++// The drag ended: dropped and finished (v3), or given up / refused (cancelled).
 +static void bmuDragHandleCancelled(void* userData, struct wl_data_source* source)
 +{
 +    if (source == bmuDragSource) bmuDragSource = NULL;
@@ -220,6 +310,9 @@ index 2afc8de..e9c34c0 100644
 +    bmuDragHandleTarget,
 +    bmuDragHandleSend,
 +    bmuDragHandleCancelled,
++    bmuSourceDropPerformed,
++    bmuDragHandleCancelled,   // dnd_finished
++    bmuSourceAction,
 +};
 +
 +// Start a drag of `count` formats (copied) from the window under the pointer, while a mouse button is held.
@@ -250,6 +343,9 @@ index 2afc8de..e9c34c0 100644
 +    wl_data_source_add_listener(bmuDragSource, &bmuDragSourceListener, NULL);
 +    for (int i = 0; i < bmuDragCount; i++)
 +        wl_data_source_offer(bmuDragSource, bmuDragMime[i]);
++    if (wl_proxy_get_version((struct wl_proxy*) bmuDragSource) >= 3)
++        wl_data_source_set_actions(bmuDragSource,
++                                   WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY | WL_DATA_DEVICE_MANAGER_DND_ACTION_MOVE);
 +    wl_data_device_start_drag(_glfw.wl.dataDevice, bmuDragSource, window->wl.surface, NULL, bmuButtonSerial);
 +    for (int b = 0; b <= GLFW_MOUSE_BUTTON_LAST; b++)
 +        if (window->mouseButtons[b] == GLFW_PRESS)

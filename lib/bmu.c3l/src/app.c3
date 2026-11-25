@@ -263,6 +263,7 @@ fn String clipboard_get_data(String mime) @feat(LINUX)
  mouse button is held (typically when the pointer leaves the window during your own drag). Up to 4 formats,
  copied. The compositor owns the pointer until the drop; the held button is reported as released now, so end
  your own drag state. A drop on one of this app's windows arrives like any file drop (rl::is_file_dropped).
+ The drag ends when the target finishes the drop, refuses it, or (a v1 target) has read text/uri-list.
 *>
 fn bool drag_start(String[] mimes, char[][] datas) @feat(!LINUX) => false;
 
