@@ -713,6 +713,17 @@ fn bool copy_progress(Rect bar) => @pool()
 	ui::panel(bar, ui::BG1, 4);
 	ui::panel({ bar.x, bar.y, bar.width * f, bar.height }, ui::AQUA, 4);
 	ui::text_fit(txt::view(&p.current), bar.x, bar.y + bar.height + 4, bar.width, 13, ui::FG4);
+	// One row per item below the bar (first rows only here; scroll with `first` in a real list).
+	fileop::ItemProgress[4] rows;
+	int n = copier.item_status(0, &rows);
+	for (int i = 0; i < n; i++)
+	{
+		float y = bar.y + bar.height + 24 + (float)i * 20;
+		Color c = rows[i].state == DONE ? ui::GREEN : rows[i].state == ACTIVE ? ui::FG : ui::FG4;
+		ui::text_fit(txt::view(&rows[i].name), bar.x, y, bar.width * 0.7f, 13, c);
+		float rf = rows[i].bytes_total ? (float)rows[i].bytes_done / (float)rows[i].bytes_total : rows[i].state == DONE ? 1 : 0;
+		ui::panel({ bar.x + bar.width * 0.72f, y + 5, bar.width * 0.28f * rf, 4 }, ui::AQUA, 2);
+	}
 	if (p.state != CONFLICT) return false;
 	ui::layer = 1;
 	Rect box = ui::dialog(420, 170);

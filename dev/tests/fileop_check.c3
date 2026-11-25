@@ -71,6 +71,31 @@ fn void check_fileop() => @pool()
 	put("a/tree/sub/y.txt", "yy");
 	symlink("x.txt", at("a/tree/link").zstr_tcopy());
 
+	// Per-item progress: read before finished() reaps the job.
+	sys::mkdirs(at("items"));
+	fileop::ItemProgress[3] ip;
+	int got = -1;
+	if (job.start(COPY, at("a"), { "one.txt", "tree" }, at("items")))
+	{
+		expect(job.item_count() == 2, "fileop: item_count");
+		fileop::Progress q;
+		for (int spins = 0; spins < 20000; spins++)
+		{
+			job.status(&q);
+			if (q.state == DONE || q.state == FAILED) break;
+			sys::c_usleep(500);
+		}
+		got = job.item_status(0, &ip);
+		expect(job.item_status(2, &ip) == 0, "fileop: item_status past the end");
+		while (!job.finished(&q)) sys::c_usleep(500);
+	}
+	expect(got == 2, "fileop: item_status fills both items");
+	expect(ip[0].state == DONE && ip[1].state == DONE, "fileop: items done");
+	expect_str(txt::view(&ip[1].name), "tree", "fileop: item name");
+	expect(ip[0].files_total == 1 && ip[0].bytes_done == 3 && ip[0].bytes_total == 3, "fileop: file item counts");
+	expect(ip[1].files_total == 5 && ip[1].files_done == 5 && ip[1].bytes_total == 3 && ip[1].bytes_done == 3, "fileop: tree item counts (dir, sub, 2 files, link)");
+	expect(job.item_count() == 0, "fileop: no items when idle");
+
 	// Copy a file and a folder tree (with a symlink); sources stay.
 	fileop::Progress p = run(COPY, "a", { "one.txt", "tree" }, "b");
 	expect(p.state == DONE, "fileop: copy done");

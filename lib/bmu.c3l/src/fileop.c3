@@ -101,8 +101,22 @@ struct Progress
 	char[256] conflict;  // name that exists in the target (state CONFLICT)
 	int removed;         // MOVE across filesystems, FINISHING: source files/folders deleted so far
 	int remove_total;    // ... and to delete (0 = not deleting sources)
+	int item;            // index of the top-level item being worked on (-1 = none yet; see item_status)
 	char[512] error;     // state FAILED: what went wrong
 	CInt err;            // errno of that error (0 = none / not a system error): EACCES / EPERM mean "permission denied"
+}
+
+enum ItemState { WAITING, ACTIVE, DONE, SKIPPED }
+
+<* One top-level item of a running job (Job.item_status). Bytes count like Progress.bytes_done (flushed). *>
+struct ItemProgress
+{
+	ItemState state;
+	int files_done;      // files, folders and links of this item handled
+	int files_total;     // known after SCANNING (TRASH / RESTORE: 0, the state tells)
+	ulong bytes_done;
+	ulong bytes_total;
+	char[256] name;      // the source name
 }
 
 struct Item @private
@@ -116,6 +130,13 @@ struct Item @private
 	bool committed;
 	bool missing;        // DELETE: the item was already gone (retry after a partial failure)
 	ulong dev;
+	ulong pending;       // copied bytes not yet flushed (worker only)
+	// Shared with the UI (item_status), guarded by Job.mutex:
+	ItemState st;
+	int f_done;
+	int f_total;
+	ulong b_done;
+	ulong b_total;
 }
 
 // Keep at a stable address while busy; methods are UI-thread-only.
@@ -146,6 +167,8 @@ struct Job
 	ulong unflushed;     // copied bytes not yet flushed to the target disk (not yet counted as done)
 	Clock last_flush;
 	int copied_nodes;    // files, folders, links and skipped specials of COPY items (sources a MOVE deletes)
+	int cur;             // item that progress is counted for (-1 = none)
+	int flush_from;      // first item that may still have unflushed bytes
 	int pid;
 	bool elevated;       // run through the root helper (start_elevated)
 	char[512] secret;    // password for sudo; wiped as soon as it is written
@@ -248,10 +271,12 @@ fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_d
 	self.cancel_req = false;
 	self.answered = false;
 	self.has_all = false;
-	self.p = { .state = SCANNING, .kind = kind, .items = (int)names.len, .can_cancel = true };
+	self.p = { .state = SCANNING, .kind = kind, .items = (int)names.len, .can_cancel = true, .item = -1 };
 	self.unflushed = 0;
 	self.last_flush = clock::now();
 	self.copied_nodes = 0;
+	self.cur = -1;
+	self.flush_from = 0;
 	if (catch self.worker.create(&work, self))
 	{
 		self.wake.destroy(); self.mutex.destroy();
@@ -273,6 +298,32 @@ fn void Job.status(&self, Progress* out)
 	self.mutex.lock();
 	*out = self.p;
 	self.mutex.unlock();
+}
+
+<*
+ Number of top-level items with per-item progress (item_status): the names given to start(). 0 when idle and
+ for COUNT, EXTRACT and elevated jobs (their items are not tracked).
+*>
+fn int Job.item_count(&self) => self.started && !self.elevated && self.kind != COUNT && self.kind != EXTRACT ? self.count : 0;
+
+<*
+ Progress of items `first`, `first + 1`… into `out` (one lock for the whole range: ask only for the rows you
+ show). Returns how many were filled.
+*>
+fn int Job.item_status(&self, int first, ItemProgress[] out)
+{
+	int total = self.item_count();
+	if (first < 0 || first >= total) return 0;
+	int n = math::min((int)out.len, total - first);
+	self.mutex.lock();
+	for (int k = 0; k < n; k++)
+	{
+		Item* it = &self.items[first + k];
+		out[k] = { .state = it.st, .files_done = it.f_done, .files_total = it.f_total, .bytes_done = it.b_done, .bytes_total = it.b_total };
+	}
+	self.mutex.unlock();
+	for (int k = 0; k < n; k++) txt::set(&out[k].name, src_name(self, first + k)); // names never change while running
+	return n;
 }
 
 <* Request cancellation; ignored while committing. Rollback runs on the worker; poll finished(). *>
@@ -429,6 +480,7 @@ fn void add_done(Job* j, int files, ulong bytes) @private
 	j.mutex.lock();
 	j.p.files_done += files;
 	j.p.bytes_done += bytes;
+	if (j.cur >= 0) { j.items[j.cur].f_done += files; j.items[j.cur].b_done += bytes; }
 	j.mutex.unlock();
 }
 
@@ -437,6 +489,24 @@ fn void add_total(Job* j, int files, ulong bytes) @private
 	j.mutex.lock();
 	j.p.files_total += files;
 	j.p.bytes_total += bytes;
+	if (j.cur >= 0) { j.items[j.cur].f_total += files; j.items[j.cur].b_total += bytes; }
+	j.mutex.unlock();
+}
+
+<* Count the following progress for item i (state unchanged). *>
+fn void item_for(Job* j, int i) @private
+{
+	j.mutex.lock();
+	j.cur = i;
+	j.mutex.unlock();
+}
+
+<* Item i is now `s`; ACTIVE also counts the following progress for it. *>
+fn void item_state(Job* j, int i, ItemState s) @private
+{
+	j.mutex.lock();
+	j.items[i].st = s;
+	if (s == ACTIVE) { j.cur = i; j.p.item = i; }
 	j.mutex.unlock();
 }
 
@@ -551,7 +621,15 @@ fn void set_times(ZString path, libc::Stat* st) @private
 fn void flush(Job* j, CInt fd) @private
 {
 	if (fd >= 0) c_syncfs(fd);
-	add_done(j, 0, j.unflushed);
+	j.mutex.lock();
+	j.p.bytes_done += j.unflushed;
+	for (int i = j.flush_from; i < j.count; i++)
+	{
+		j.items[i].b_done += j.items[i].pending;
+		j.items[i].pending = 0;
+	}
+	if (j.cur > j.flush_from) j.flush_from = j.cur; // items are copied in order: earlier ones are complete
+	j.mutex.unlock();
 	j.unflushed = 0;
 	j.last_flush = clock::now();
 }
@@ -625,6 +703,7 @@ fn bool copy_file(Job* j, libc::Stat* st) @private
 		if (n == 0) break;
 		copied += (ulong)n;
 		j.unflushed += (ulong)n;
+		if (j.cur >= 0) j.items[j.cur].pending += (ulong)n;
 		maybe_flush(j, out);
 	}
 	maybe_flush(j, out);
@@ -843,7 +922,7 @@ fn State transfer(Job* j) @private
 		it.plan = j.kind == MOVE && it.dev == (ulong)dst_st.st_dev ? RENAME : COPY;
 		if (same_dir)
 		{
-			if (j.kind == MOVE) { it.plan = SKIP; continue; }
+			if (j.kind == MOVE) { it.plan = SKIP; item_state(j, i, SKIPPED); continue; }
 			if (!unique_name(j, name, dir, true, &it.dst)) { *c_errno() = 0; fail(j, "No free name for a copy of", name); return FAILED; }
 			continue;
 		}
@@ -868,7 +947,7 @@ fn State transfer(Job* j) @private
 				it.replace = true;
 			case SKIP:
 				it.plan = SKIP;
-				j.mutex.lock(); j.p.skipped++; j.mutex.unlock();
+				j.mutex.lock(); j.p.skipped++; it.st = SKIPPED; j.mutex.unlock();
 			case KEEP_BOTH:
 				if (!unique_name(j, name, dir, false, &it.dst)) { *c_errno() = 0; fail(j, "No free name for", name); return FAILED; }
 		}
@@ -877,8 +956,9 @@ fn State transfer(Job* j) @private
 	for (int i = 0; i < j.count; i++)
 	{
 		Item* it = &j.items[i];
+		if (it.plan == SKIP) continue;
+		item_for(j, i);
 		if (it.plan == RENAME) { add_total(j, 1, 0); continue; }
-		if (it.plan != COPY) continue;
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
 		if (!scan(j, 0)) return rollback(j);
 	}
@@ -891,6 +971,7 @@ fn State transfer(Job* j) @private
 		if (stopped(j)) return rollback(j);
 		String name = src_name(j, i);
 		set_current(j, name);
+		item_state(j, i, ACTIVE);
 		char[4096] dst;
 		set_path(&j.sp, &j.sl, src_dir, name);
 		set_path(&dst, &&(usz){}, dst_dir, txt::view(&it.dst));
@@ -922,17 +1003,20 @@ fn State transfer(Job* j) @private
 		}
 		it.started = true;
 		add_done(j, 1, 0);
+		item_state(j, i, DONE);
 	}
 	for (int i = 0; i < j.count; i++)
 	{
 		Item* it = &j.items[i];
 		if (it.plan != COPY) continue;
 		if (stopped(j)) return rollback(j);
+		item_state(j, i, ACTIVE);
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
 		if (!temp_path(j, i, "part", &j.dp)) { *c_errno() = 0; fail(j, "Path too long", src_name(j, i)); return rollback(j); }
 		j.dl = txt::view(&j.dp).len;
 		it.started = true;
 		if (!copy_tree(j, 0)) return rollback(j);
+		item_state(j, i, DONE);
 	}
 	flush_target(j);
 	if (stopped(j)) return rollback(j);
@@ -1304,6 +1388,7 @@ fn State restore_all(Job* j) @private
 		if (stopped(j)) return CANCELLED;
 		String name = src_name(j, i);
 		set_current(j, name);
+		item_state(j, i, ACTIVE);
 		char[4096] origin;
 		if (!read_origin(j, name, &origin)) return FAILED;
 		String path = txt::view(&origin);
@@ -1328,7 +1413,7 @@ fn State restore_all(Job* j) @private
 			switch (a)
 			{
 				case SKIP:
-					j.mutex.lock(); j.p.skipped++; j.p.files_done++; j.mutex.unlock();
+					j.mutex.lock(); j.p.skipped++; j.p.files_done++; j.items[i].st = SKIPPED; j.mutex.unlock();
 					continue;
 				case KEEP_BOTH:
 					if (!unique_name(j, txt::basename(path), (st.st_mode & S_IFMT) == S_IFDIR, false, &final)) { *c_errno() = 0; fail(j, "No free name for", name); return FAILED; }
@@ -1352,6 +1437,7 @@ fn State restore_all(Job* j) @private
 		char[4096] info;
 		if (info_path(j, name, &info)) c_unlink(zp(&info));
 		add_done(j, 1, 0);
+		item_state(j, i, DONE);
 	}
 	return DONE;
 }
@@ -1375,7 +1461,8 @@ fn State delete_all(Job* j) @private
 	{
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
 		libc::Stat gone;
-		if (c_lstat(zp(&j.sp), &gone) != 0 && *c_errno() == ENOENT) { j.items[i].missing = true; continue; }
+		if (c_lstat(zp(&j.sp), &gone) != 0 && *c_errno() == ENOENT) { j.items[i].missing = true; item_state(j, i, DONE); continue; }
+		item_for(j, i);
 		if (!scan(j, 0)) return j.p.error[0] ? FAILED : CANCELLED;
 	}
 	// Deleting inside the trash also removes each item's .trashinfo record (freedesktop spec).
@@ -1387,8 +1474,10 @@ fn State delete_all(Job* j) @private
 	for (int i = 0; i < j.count; i++)
 	{
 		if (j.items[i].missing) continue;
+		item_state(j, i, ACTIVE);
 		set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
 		if (!remove_tree(j, 0, true, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
+		item_state(j, i, DONE);   // its .trashinfo record (inside the trash) goes next, nothing to show
 		if (in_trash)
 		{
 			char[4096] info;
@@ -1482,13 +1571,15 @@ fn State trash(Job* j) @private
 		String name = src_name(j, i);
 		set_current(j, name);
 		set_path(&j.sp, &j.sl, src_dir, name);
-		if (trash_one(j, t, name)) { add_done(j, 1, 0); continue; }
+		item_state(j, i, ACTIVE);
+		if (trash_one(j, t, name)) { add_done(j, 1, 0); item_state(j, i, DONE); continue; }
 		if (j.p.error[0]) return FAILED;
 		if (*c_errno() == EXDEV && j.permanent_fallback)
 		{
 			set_path(&j.dp, &j.dl, src_dir, name);
 			if (!remove_tree(j, 0, false, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
 			add_done(j, 1, 0);
+			item_state(j, i, DONE);
 			continue;
 		}
 		fail(j, *c_errno() == EXDEV ? "Not on the trash's drive" : "Cannot move to the trash", name);
