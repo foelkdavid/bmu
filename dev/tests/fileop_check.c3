@@ -245,7 +245,7 @@ fn void check_fileop() => @pool()
 		}
 		busy.poll();
 		fileop::BusyHit h = busy.find(at("busy/src"), "two");
-		expect(busy.has_dir(at("busy/src")) && h.found && h.own && h.kind == COPY && h.item == 1, "fileop: busy finds a running item");
+		expect(busy.has_dir(at("busy/src")) && h.found && h.own && h.kind == COPY && h.item == 1 && h.job == job.id(), "fileop: busy finds a running item");
 		expect(!busy.find(at("busy/src"), "three").found && !busy.find(at("busy"), "two").found, "fileop: busy misses others");
 		expect(!busy.has_dir("/nowhere") && !there("run/bmu-fileop/999999999-1"), "fileop: busy drops records of dead processes");
 		job.answer(SKIP, true);
@@ -255,6 +255,75 @@ fn void check_fileop() => @pool()
 	}
 	else { expect(false, "fileop: busy job start"); }
 	busy.close();
+
+	// cancel_item: one item left out (asked while the job waits on a conflict), the rest is copied.
+	sys::mkdirs(at("drop/src"));
+	sys::mkdirs(at("drop/dst"));
+	put("drop/src/keep1", "k1");
+	put("drop/src/gone", "gone!");
+	put("drop/src/keep2", "k2");
+	put("drop/dst/keep2", "old");
+	expect(!job.cancel_item(0), "fileop: cancel_item refused when idle");
+	if (job.start(COPY, at("drop/src"), { "keep1", "gone", "keep2" }, at("drop/dst")))
+	{
+		for (int spins = 0; spins < 20000; spins++)
+		{
+			job.status(&p);
+			if (p.state == CONFLICT) break;
+			sys::c_usleep(500);
+		}
+		expect(job.cancel_item(1), "fileop: cancel_item accepted");
+		expect(!job.cancel_item(1), "fileop: cancel_item only once");
+		fileop::ItemProgress[3] dip;
+		job.answer(KEEP_BOTH, true);
+		for (int spins = 0; spins < 20000; spins++)
+		{
+			job.status(&p);
+			if (p.state == DONE || p.state == FAILED) break;
+			sys::c_usleep(500);
+		}
+		job.item_status(0, &dip);
+		while (!job.finished(&p)) sys::c_usleep(500);
+		expect(p.state == DONE && p.dropped == 1 && p.bytes_total == 4 && p.bytes_done == 4, "fileop: dropped item left out of the totals");
+		expect(dip[1].state == CANCELLED && dip[0].state == DONE && dip[2].state == DONE, "fileop: item states after cancel_item");
+		expect(!there("drop/dst/gone") && get("drop/dst/keep1") == "k1" && get("drop/dst/keep2 (2)") == "k2", "fileop: the rest was copied");
+		expect(no_temporaries("drop/dst"), "fileop: no temporaries after cancel_item");
+	}
+	else { expect(false, "fileop: cancel_item job start"); }
+
+	// cancel_item while the item is being copied (or right after: then it is undone before the commit).
+	sys::mkdirs(at("drop2/dst"));
+	sys::mkdirs(at("drop2/src"));
+	put("drop2/src/small", "s");
+	{
+		char[] big = mem::new_array(char, 64 * 1024 * 1024);
+		defer free(big);
+		sys::write_file(at("drop2/src/big"), (String)big);
+	}
+	if (job.start(COPY, at("drop2/src"), { "big", "small" }, at("drop2/dst")))
+	{
+		fileop::ItemProgress[2] dip;
+		bool asked;
+		for (int spins = 0; spins < 40000 && !asked; spins++)
+		{
+			job.status(&p);
+			if (p.state == DONE || p.state == FAILED) break;
+			if (job.item_status(0, &dip) == 2 && dip[0].state != WAITING) asked = job.cancel_item(0);
+			sys::c_usleep(100);
+		}
+		for (int spins = 0; spins < 40000; spins++)
+		{
+			job.status(&p);
+			if (p.state == DONE || p.state == FAILED) break;
+			sys::c_usleep(500);
+		}
+		job.item_status(0, &dip);
+		while (!job.finished(&p)) sys::c_usleep(500);
+		expect(asked, "fileop: cancel_item while copying accepted");
+		expect(p.state == DONE && dip[0].state == CANCELLED && !there("drop2/dst/big") && get("drop2/dst/small") == "s", "fileop: item left out mid-copy, the rest copied");
+		expect(p.bytes_total == 1 && p.bytes_done == 1 && no_temporaries("drop2/dst"), "fileop: totals and temporaries after a mid-copy drop");
+	}
+	else { expect(false, "fileop: mid-copy drop start"); }
 
 	expect(!job.start(COPY, "relative", { "x" }, "/tmp"), "fileop: refuse relative source");
 	expect(!job.start(COPY, "/tmp", { "a/b" }, "/tmp"), "fileop: refuse names with slash");

@@ -723,6 +723,8 @@ fn bool copy_progress(Rect bar) => @pool()
 		ui::text_fit(txt::view(&rows[i].name), bar.x, y, bar.width * 0.7f, 13, c);
 		float rf = rows[i].bytes_total ? (float)rows[i].bytes_done / (float)rows[i].bytes_total : rows[i].state == DONE ? 1 : 0;
 		ui::panel({ bar.x + bar.width * 0.72f, y + 5, bar.width * 0.28f * rf, 4 }, ui::AQUA, 2);
+		// Leave just this item out (the rest goes on); refused once it is too late.
+		if (rows[i].state != CANCELLED && ui::icon_button({ bar.x - 26, y - 2, 20, 20 }, ui::I_TIMES, ui::GRAY, "Leave out")) copier.cancel_item(i);
 	}
 	if (p.state != CONFLICT) return false;
 	ui::layer = 1;

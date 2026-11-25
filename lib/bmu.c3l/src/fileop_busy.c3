@@ -60,6 +60,7 @@ struct BusyJob
 	Kind kind;
 	int pid;
 	bool own;            // started by this process
+	ulong id;            // Job.id() of that job (in its process)
 	char[4096] src_dir;
 }
 
@@ -70,6 +71,7 @@ struct BusyHit
 	Kind kind;
 	bool own;            // a job of this process: `item` indexes its Job.item_status
 	int item;            // index of the name in its job
+	ulong job;           // its Job.id(): with `own`, which of this process's jobs
 }
 
 struct BusySlot @private
@@ -141,7 +143,7 @@ fn BusyHit Busy.find(&self, String dir, String name)
 			if (!s.off) break;
 			if (s.job == j && ((ZString)(self.blob + s.off - 1)).str_view() == name)
 			{
-				return { .found = true, .kind = self.job[j].kind, .own = self.job[j].own, .item = s.item };
+				return { .found = true, .kind = self.job[j].kind, .own = self.job[j].own, .item = s.item, .job = self.job[j].id };
 			}
 		}
 	}
@@ -202,6 +204,9 @@ fn void Busy.load(&self) => @pool()
 		if (dir_end >= 4096) continue;
 		BusyJob* bj = &self.job[self.jobs];
 		*bj = { .kind = (Kind)kind, .pid = pid, .own = pid == me };
+		String fname = txt::view(&list[i].name);   // "PID-JOBHEX"
+		sz? dash = fname.index_of_char('-');
+		if (try dash) foreach (c : fname[(usz)dash + 1..]) bj.id = bj.id * 16 + (ulong)(c >= 'a' ? c - 'a' + 10 : c - '0');
 		txt::set(&bj.src_dir, rest[:dir_end]);
 		bodies[self.jobs] = dir_end < rest.len ? rest[dir_end + 1..] : "";
 		total += bodies[self.jobs].len + 1;

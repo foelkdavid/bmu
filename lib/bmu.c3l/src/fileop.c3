@@ -102,11 +102,12 @@ struct Progress
 	int removed;         // MOVE across filesystems, FINISHING: source files/folders deleted so far
 	int remove_total;    // ... and to delete (0 = not deleting sources)
 	int item;            // index of the top-level item being worked on (-1 = none yet; see item_status)
+	int dropped;         // items cancelled one by one (cancel_item)
 	char[512] error;     // state FAILED: what went wrong
 	CInt err;            // errno of that error (0 = none / not a system error): EACCES / EPERM mean "permission denied"
 }
 
-enum ItemState { WAITING, ACTIVE, DONE, SKIPPED }
+enum ItemState { WAITING, ACTIVE, DONE, SKIPPED, CANCELLED }
 
 <* One top-level item of a running job (Job.item_status). Bytes count like Progress.bytes_done (flushed). *>
 struct ItemProgress
@@ -133,6 +134,7 @@ struct Item @private
 	ulong pending;       // copied bytes not yet flushed (worker only)
 	// Shared with the UI (item_status), guarded by Job.mutex:
 	ItemState st;
+	bool drop;           // cancel_item asked for it
 	int f_done;
 	int f_total;
 	ulong b_done;
@@ -301,6 +303,9 @@ fn void Job.status(&self, Progress* out)
 	self.mutex.unlock();
 }
 
+<* This job's identity (also in its registry record: BusyHit.job). *>
+fn ulong Job.id(&self) => (ulong)(uptr)self;
+
 <*
  Number of top-level items with per-item progress (item_status): the names given to start(). 0 when idle and
  for COUNT, EXTRACT and elevated jobs (their items are not tracked).
@@ -325,6 +330,26 @@ fn int Job.item_status(&self, int first, ItemProgress[] out)
 	self.mutex.unlock();
 	for (int k = 0; k < n; k++) txt::set(&out[k].name, src_name(self, first + k)); // names never change while running
 	return n;
+}
+
+<*
+ Leave out one top-level item (an index of item_status) while the rest continue: COPY / MOVE items that are
+ waiting, being copied or already copied (until the commit: their copy is removed, a move is undone); for
+ DELETE / TRASH / RESTORE only waiting items. False when that is no longer possible (FINISHING, done
+ deleting, …). The item ends CANCELLED and counts in Progress.dropped; totals no longer include it.
+*>
+fn bool Job.cancel_item(&self, int i)
+{
+	if (i < 0 || i >= self.item_count()) return false;
+	self.mutex.lock();
+	defer self.mutex.unlock();
+	if (!self.p.can_cancel || self.p.state == FINISHING) return false;
+	Item* it = &self.items[i];
+	if (it.drop || it.st == CANCELLED || it.st == SKIPPED) return false;
+	if (self.kind != COPY && self.kind != MOVE && it.st != WAITING) return false;
+	it.drop = true;
+	self.wake.signal();
+	return true;
 }
 
 <* Request cancellation; ignored while committing. Rollback runs on the worker; poll finished(). *>
@@ -455,12 +480,64 @@ fn int work(void* arg) @private
 	return 0;
 }
 
+<* Stop the current work: the whole job was cancelled, or (COPY / MOVE) the item being copied was dropped. *>
 fn bool stopped(Job* j) @private
 {
 	j.mutex.lock();
-	bool c = j.cancel_req;
+	bool c = j.cancel_req || ((j.kind == COPY || j.kind == MOVE) && j.cur >= 0 && j.items[j.cur].st == ACTIVE && j.items[j.cur].drop);
 	j.mutex.unlock();
 	return c;
+}
+
+fn bool dropped(Job* j, int i) @private
+{
+	j.mutex.lock();
+	bool d = j.items[i].drop && !j.cancel_req;
+	j.mutex.unlock();
+	return d;
+}
+
+<*
+ Worker: leave item i out (cancel_item). Undo what was done for it (temporary copy removed, rename undone, a
+ replaced target put back) and take its numbers out of the totals, so the bar stays right for the rest.
+*>
+fn void drop_item(Job* j, int i) @private
+{
+	Item* it = &j.items[i];
+	char[4096] dst, other;
+	set_path(&dst, &&(usz){}, txt::view(&j.dst_dir), txt::view(&it.dst));
+	if (it.started && it.plan == COPY)
+	{
+		temp_path(j, i, "part", &other);
+		discard(j, zp(&other));
+	}
+	if (it.started && it.plan == RENAME)
+	{
+		set_path(&other, &&(usz){}, txt::view(&j.src_dir), src_name(j, i));
+		rename_noreplace(zp(&dst), zp(&other));
+	}
+	if (it.aside)
+	{
+		temp_path(j, i, "old", &other);
+		rename_noreplace(zp(&other), zp(&dst));
+		it.aside = false;
+	}
+	if (it.plan == COPY && it.started) j.copied_nodes -= it.f_done; // a cross-drive MOVE won't delete its sources
+	it.started = false;
+	it.replace = false;
+	it.plan = SKIP;
+	j.unflushed -= math::min(j.unflushed, it.pending);
+	it.pending = 0;
+	j.mutex.lock();
+	j.p.files_total -= it.f_total;
+	j.p.bytes_total -= it.b_total;
+	j.p.files_done -= it.f_done;
+	j.p.bytes_done -= it.b_done;
+	j.p.dropped++;
+	it.st = CANCELLED;
+	it.f_total = it.f_done = 0;
+	it.b_total = it.b_done = 0;
+	j.mutex.unlock();
 }
 
 fn void set_state(Job* j, State s, bool can_cancel = true) @private
@@ -960,6 +1037,7 @@ fn State transfer(Job* j) @private
 	{
 		Item* it = &j.items[i];
 		if (it.plan == SKIP) continue;
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		item_for(j, i);
 		if (it.plan == RENAME) { add_total(j, 1, 0); continue; }
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
@@ -972,6 +1050,7 @@ fn State transfer(Job* j) @private
 		Item* it = &j.items[i];
 		if (it.plan != RENAME) continue;
 		if (stopped(j)) return rollback(j);
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		String name = src_name(j, i);
 		set_current(j, name);
 		item_state(j, i, ACTIVE);
@@ -1013,16 +1092,24 @@ fn State transfer(Job* j) @private
 		Item* it = &j.items[i];
 		if (it.plan != COPY) continue;
 		if (stopped(j)) return rollback(j);
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		item_state(j, i, ACTIVE);
 		set_path(&j.sp, &j.sl, src_dir, src_name(j, i));
 		if (!temp_path(j, i, "part", &j.dp)) { *c_errno() = 0; fail(j, "Path too long", src_name(j, i)); return rollback(j); }
 		j.dl = txt::view(&j.dp).len;
 		it.started = true;
-		if (!copy_tree(j, 0)) return rollback(j);
+		if (!copy_tree(j, 0))
+		{
+			if (!dropped(j, i) || j.p.error[0]) return rollback(j);
+			drop_item(j, i);   // cancelled while it was being copied: the rest goes on
+			continue;
+		}
 		item_state(j, i, DONE);
 	}
 	flush_target(j);
 	if (stopped(j)) return rollback(j);
+	// Items dropped after they were done (renamed or copied) are undone now, before the commit.
+	for (int i = 0; i < j.count; i++) if (j.items[i].st != CANCELLED && dropped(j, i)) drop_item(j, i);
 	// 4. Commit: not cancellable.
 	set_state(j, FINISHING, false);
 	bool ok = true;
@@ -1390,6 +1477,7 @@ fn State restore_all(Job* j) @private
 	{
 		if (stopped(j)) return CANCELLED;
 		String name = src_name(j, i);
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		set_current(j, name);
 		item_state(j, i, ACTIVE);
 		char[4096] origin;
@@ -1477,6 +1565,8 @@ fn State delete_all(Job* j) @private
 	for (int i = 0; i < j.count; i++)
 	{
 		if (j.items[i].missing) continue;
+		if (stopped(j)) return CANCELLED;
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		item_state(j, i, ACTIVE);
 		set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
 		if (!remove_tree(j, 0, true, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
@@ -1574,6 +1664,7 @@ fn State trash(Job* j) @private
 		String name = src_name(j, i);
 		set_current(j, name);
 		set_path(&j.sp, &j.sl, src_dir, name);
+		if (dropped(j, i)) { drop_item(j, i); continue; }
 		item_state(j, i, ACTIVE);
 		if (trash_one(j, t, name)) { add_done(j, 1, 0); item_state(j, i, DONE); continue; }
 		if (j.p.error[0]) return FAILED;
