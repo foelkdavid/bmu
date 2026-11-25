@@ -13,7 +13,7 @@ case $module in [a-z]*) ;; *) module="app_$module" ;; esac
 url=${BMU_URL:-$(git -C "$here" remote get-url origin 2>/dev/null || echo "$here")}
 mkdir -p "$dest"
 cp -r "$here/template/." "$dest/"
-for f in "$dest/src/main.c3" "$dest/project.json" "$dest/README.md" "$dest/AGENTS.md"; do
+for f in "$dest/src/main.c3" "$dest/project.json" "$dest/README.md"; do
     sed -i "s/APP_MODULE/$module/g; s/APP_NAME/$name/g" "$f"
 done
 cd "$dest"

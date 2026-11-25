@@ -11,7 +11,7 @@
 ## Try it
 
 ```sh
-cd ../bmu
+git clone https://github.com/foelkdavid/bmu.git && cd bmu
 c3c build example-hello   && ./build/example-hello
 c3c build example-gallery && ./build/example-gallery      # every widget + the file picker
 ```
@@ -19,11 +19,11 @@ c3c build example-gallery && ./build/example-gallery      # every widget + the f
 ## A new app
 
 ```sh
-../bmu/tools/new-app.sh ../my-app "My App"
-cd ../my-app && c3c build && ./build/my-app
+bmu/tools/new-app.sh my-app "My App"
+cd my-app && c3c build && ./build/my-app
 ```
 
-This copies `template/`, links bmu in as a git submodule at `bmu/` (like vpt-engine is `engine/` in Depths),
+This copies `template/`, links bmu in as a git submodule at `bmu/`,
 builds, and makes the first commit. To add bmu to an **existing** project by hand:
 
 1. Make `bmu/` point at this repo: `git submodule add <bmu repo> bmu` (or a symlink
@@ -89,4 +89,4 @@ Build and look at it without clicking around: `./build/my-app --shot out.png` sa
 - [QUICK_REFERENCE.md](QUICK_REFERENCE.md): all calls on one page.
 - [COOKBOOK.md](COOKBOOK.md): forms, lists, dialogs, tabs, the file picker, settings files, shortcuts, drag & drop.
 - [CONCEPTS.md](CONCEPTS.md): layers, logical pixels, ids.
-- Apps built on bmu live in `../`: sms (file explorer), dzi (image viewer), mzp (PDF viewer), botexe (Proton launcher), paraplan (Paralives floor plans).
+- Apps built on bmu: [sms](https://github.com/foelkdavid/sms) (file explorer), [dzi](https://github.com/foelkdavid/dzi) (image viewer), [mzp](https://github.com/foelkdavid/mzp) (PDF viewer).
