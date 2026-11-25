@@ -301,7 +301,7 @@ if (ui::menu_begin(MENU_ROW))
 	if (ui::menu_item("Open", ui::I_FOLDER_OPEN, "Enter")) open(selected);
 	if (ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", can_paste)) paste();
 	ui::menu_sep();
-	if (ui::menu_item("Delete", ui::I_TRASH, "Del")) delete(selected);
+	if (ui::menu_item("Delete", ui::I_TRASH, "Del", danger: true)) delete(selected);
 	ui::menu_end();
 }
 ```
@@ -310,7 +310,7 @@ if (ui::menu_begin(MENU_ROW))
 |---|---|
 | `fn void menu_open(int id, float x = -1, float y = -1)` | Open menu `id` at the mouse (or at `x, y`). Closes an open dropdown, consumes the click, gives the menu the input (`top = MENU_LAYER`, 98) from now on. Remember yourself what it was opened for. |
 | `fn bool menu_begin(int id, float w = 240)` | True while `id` is open: then add items and call `menu_end()`. Call it **after** the widgets it should cover. A menu not drawn for a frame closes. |
-| `fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true)` | One row (30 px): icon, label, `keys` hint right-aligned in GRAY (display only). True when clicked or Enter was pressed on it; the menu closes. Disabled rows are greyed and skipped by the arrow keys. |
+| `fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true, bool danger = false)` | One row (30 px): icon, label, `keys` hint right-aligned in GRAY (display only). True when clicked or Enter was pressed on it; the menu closes. Disabled rows are greyed and skipped by the arrow keys. `danger`: destructive action (delete, empty trash), icon and label in RED. |
 | `fn void menu_sep()` | Separator line. |
 | `fn void menu_end()` | Draws the box (flipped up / shifted left to stay in the window), handles ↑/↓, Esc and clicks outside (they close it and are consumed). |
 | `fn void menu_close()`, `fn bool menu_is_open(int id)`, `int menu_id` | Close from code; query (−1 = none open). |

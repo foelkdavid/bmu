@@ -113,7 +113,7 @@ fn void main(String[] args)
 | `text_area(id, r, &buf, placeholder="", &submitted=null, enter_submits=false, size=15) -> bool` | multi-line editor: wrap, scroll, selection, undo; Enter = new line (or submit with `enter_submits`, Shift+Enter = new line); Ctrl+Enter submits |
 | `secret_input(id, r, &buf, placeholder, &submitted) -> bool`, `wipe(&buf)` | password field (bullets, no copy/undo) / zero a buffer for good |
 | `dropdown(id, r, items, &sel) -> bool` | `String[] items`, `int sel`; true the frame after a choice |
-| `menu_open(id, x=-1, y=-1)`; `if (menu_begin(id, w=240)) { menu_item(label, icon="", keys="", enabled=true) -> bool; menu_sep(); menu_end(); }` | right-click menu; draw it after the other widgets; owns input while open |
+| `menu_open(id, x=-1, y=-1)`; `if (menu_begin(id, w=240)) { menu_item(label, icon="", keys="", enabled=true, danger=false) -> bool; menu_sep(); menu_end(); }` | right-click menu; draw it after the other widgets; owns input while open |
 | `scroll_wheel(area, scroll, content) -> float`, `scrollbar(area, scroll, content)` | wheel scrolling (clamped) / thin bar |
 | `hover(r)`, `clicked(r)`, `right_clicked(r)` | build your own widgets |
 | `tooltip(s)`, `toast(s, color=AQUA)` | hover text this frame / 3.5 s notification bottom-right |

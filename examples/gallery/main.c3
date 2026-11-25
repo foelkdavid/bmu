@@ -160,7 +160,7 @@ fn void draw_menu() => @pool()
 	if (ui::menu_item("Copy", ui::I_COPY, "Ctrl+C")) ui::toast("Copied");
 	ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", false);
 	ui::menu_sep();
-	if (ui::menu_item("Delete", ui::I_TRASH, "Del")) ui::toast("Deleted (not really)", ui::RED);
+	if (ui::menu_item("Delete", ui::I_TRASH, "Del", danger: true)) ui::toast("Deleted (not really)", ui::RED);
 	ui::menu_end();
 }
 

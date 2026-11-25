@@ -133,7 +133,7 @@ fn void fruit_menu(String[] items) => @pool()
 	if (ui::menu_item("Copy name", ui::I_COPY, "Ctrl+C")) rl::set_clipboard_text(name.zstr_tcopy());
 	ui::menu_item("Paste", ui::I_PASTE, "Ctrl+V", false);      // disabled
 	ui::menu_sep();
-	if (ui::menu_item("Delete…", ui::I_TRASH, "Del")) confirm_open = true;
+	if (ui::menu_item("Delete…", ui::I_TRASH, "Del", danger: true)) confirm_open = true;   // red
 	ui::menu_end();
 }
 ```

@@ -1193,6 +1193,7 @@ struct MenuItem
 	String keys;
 	bool enabled;
 	bool sep;
+	bool danger;
 }
 
 int menu_id = -1;     // open menu, -1 = none
@@ -1268,16 +1269,17 @@ fn bool menu_begin(int id, float w = 240)
 }
 
 <*
- One entry: icon, label, shortcut hint on the right (`keys`, display only).
+ One entry: icon, label, shortcut hint on the right (`keys`, display only). `danger`: a destructive action
+ (delete, empty): icon and label in RED.
  @return "true when chosen (click or Enter); the menu closes"
 *>
-fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true)
+fn bool menu_item(String label, String icon = "", String keys = "", bool enabled = true, bool danger = false)
 {
 	if (menu_count >= MAX_MENU_ITEMS) return false;
 	Rect r = { menu_box.x + 4, menu_y, menu_box.width - 8, MENU_ROW };
 	menu_y += MENU_ROW;
 	int i = menu_count++;
-	menu_items[i] = { menu_keep(label), menu_keep(icon), menu_keep(keys), enabled, false };
+	menu_items[i] = { menu_keep(label), menu_keep(icon), menu_keep(keys), enabled, false, danger };
 	if (menu_id < 0 || menu_fresh || !enabled) return false;
 	if (hover(r)) menu_hot = i;
 	bool hit = clicked(r) || (menu_hot == i && live() && (rl::is_key_pressed(rl::RLKeyboardKey.ENTER) || rl::is_key_pressed(rl::RLKeyboardKey.KP_ENTER)));
@@ -1313,8 +1315,8 @@ fn void menu_end()
 			Rect r = { box.x + 4, y, box.width - 8, MENU_ROW };
 			y += MENU_ROW;
 			if (it.enabled && i == menu_hot) { panel(r, BG2, 4); cursor = POINTING_HAND; }
-			Color c = it.enabled ? FG : BG3;
-			if (it.icon.len) text(it.icon, r.x + 10, r.y + 8, 14, it.enabled ? FG4 : BG3);
+			Color c = !it.enabled ? BG3 : it.danger ? RED : FG;
+			if (it.icon.len) text(it.icon, r.x + 10, r.y + 8, 14, !it.enabled ? BG3 : it.danger ? RED : FG4);
 			float kw = it.keys.len ? text_w(it.keys, 13) + 12 : 0;
 			text_fit(it.label, r.x + 34, r.y + 7, r.width - 44 - kw, 15, c);
 			if (it.keys.len) text(it.keys, r.x + r.width - kw, r.y + 8, 13, GRAY);
