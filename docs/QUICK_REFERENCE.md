@@ -127,6 +127,8 @@ fn void main(String[] args)
 | `open`, `draw()` | is it showing / draw it on layer 1 |
 | `take(&why, &path) -> bool` | true once after a pick; `why` = your purpose constant |
 | `last_dir`, `add_place(icon, name, path)`, `clear_places()`, `set_ext_icon(ext, icon)` | last folder used; sidebar entries; per-extension list icon |
+| **desktop defaults** (`desktop::`, Linux; import `bmu::desktop`) | |
+| `DefaultHandler.request(mime, desktop, make_default=false)`, `.poll(&HandlerStatus)`, `.close()` | lazy worker: query `xdg-mime`, or set then verify after explicit user action; status: `busy`, `is_default`, `current`, `error`; request on settings open, poll cached status per frame, close on exit; 255-byte inputs/output, five-second command deadline |
 | **places** (`places::`) | |
 | `load()`, `count`, `path(i)`, `add(p)`, `remove(i)`, `downloads`/`trash`, `set_downloads(on)`/`set_trash(on)`, `downloads_path()`/`trash_path()` | the sidebar shared by all bmu apps (`~/.config/bmu/places`, written only by a file manager; defaults without it); the picker shows it; changes save at once |
 | **image** (`image::`) | |

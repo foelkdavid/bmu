@@ -445,6 +445,24 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | `struct DirWatch`: `w.watch(String dir) -> bool`, `w.changed() -> bool`, `w.close()` | Notice entries of one folder being created, deleted or renamed, and the folder itself being deleted or moved (inotify; content writes are not reported). `watch()` replaces the previous folder (call it on navigation; false = not watched); `changed()` is one non-blocking read that drains the pending events, cheap enough for every frame. Debounce before re-listing (events come in bursts). Other systems: never reports. |
 | `c_fork c_setsid c_execvpe c_dup2 c_open c_close c_write c_chdir c_waitpid c_kill c_access c_mkdir c_exit c_opendir c_readdir c_closedir c_realpath c_time c_usleep c_rename environ` | Raw libc. Constants `O_RDONLY O_WRONLY O_CREAT O_TRUNC O_APPEND WNOHANG SIGTERM SIGKILL X_OK DT_*`. See COOKBOOK "Run a program". |
 
+## Desktop defaults (`bmu::desktop`, Linux)
+
+`DefaultHandler` queries or changes a MIME type's default desktop entry using `xdg-mime` from PATH
+(no shell, inherited environment). Keep the zero-initialized object at a stable address. Nothing runs
+until requested; applications must ask the user before changing a default. Requires `xdg-utils` and an
+installed desktop entry declaring that MIME type. No raylib dependency.
+
+| call | effect |
+|---|---|
+| `DefaultHandler.request(mime, desktop, make_default=false) -> bool` | Start a worker to query; with `true`, set then query to verify. False if busy, invalid arguments, or thread creation fails. |
+| `DefaultHandler.poll(&HandlerStatus)` | Copy cached status (one lock while running) and reap a completed worker. `busy`, `is_default`, `current` and `error` describe the result. An empty current handler is valid; errors leave `is_default=false`. |
+| `DefaultHandler.close()` | Cancel, terminate an active command, join and release the worker. Call before freeing the object or exiting. |
+
+Status is cached, not watched. Request again when opening the settings page to observe external changes.
+A change is only successful when `error` is empty and `is_default` is true; desktop-specific overrides can
+prevent an `xdg-mime default` command from taking effect. Each command has a five-second deadline. Polling
+never launches a process or performs filesystem I/O; commands and output draining run only on the worker.
+
 ## Shared places (places::)
 
 Module `bmu::places`. The sidebar shared by every bmu app: `$XDG_CONFIG_HOME/bmu/places` (fallback
@@ -483,6 +501,7 @@ File system, Trash, no saved places. Each change saves at once (atomic rename); 
 | audio | 32 devices listed per direction; one device per `audio::Device`; f32 samples only |
 | recursive search | 16384 hits, 4 MiB of hit paths, 64 MiB of queued folders, 64 folder levels, 255-byte queries |
 | image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`), optional fit box (`limits.fit_w`/`fit_h`); one pending request and one ready result per loader |
+| desktop defaults | 255-byte MIME type, desktop entry ID and query response; one request per object; five seconds per command (set + verification: up to ten seconds); stderr discarded |
 | folder watch | one folder per `sys::DirWatch` (not its subfolders); 4 KiB read per drain step |
 | clip | one level (`begin_clip` doesn't nest) |
 | clipboard data | ≤4 formats per set/drag; reads ≤ `CLIPBOARD_MAX` (16 MiB), given up after 0.5 s without data |

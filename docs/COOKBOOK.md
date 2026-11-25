@@ -834,6 +834,40 @@ fn void admin_dialog(String error, fileop::Job* job, String src_dir, String[] na
 }
 ```
 
+## Offer to become the default application (Linux)
+
+Use an installed desktop entry with the appropriate `MimeType=` line. Query on settings-open, not every
+frame; change only on an explicit click. The worker keeps process launches and I/O off the UI thread.
+An empty current handler means none is configured. Errors (including missing `xdg-utils`) are separate
+from "not the default". Refresh by requesting again when the page reopens.
+
+```c3
+import bmu::desktop;
+
+desktop::DefaultHandler handler; // stable address
+desktop::HandlerStatus status;
+
+fn void settings_opened()
+{
+	handler.poll(&status);
+	if (!status.busy) (void)handler.request("application/example", "viewer.desktop");
+}
+
+fn void draw_default_setting()
+{
+	handler.poll(&status);
+	if (ui::button({ 20, 20, 220, 36 }, "Make default", enabled: !status.busy && !status.is_default))
+	{
+		(void)handler.request("application/example", "viewer.desktop", true);
+	}
+	String label = status.busy ? "Checking…" : status.is_default ? "Already the default" : "Not the default";
+	if (!txt::empty(&status.error)) label = txt::view(&status.error);
+	ui::text_fit(label, 252, 30, 320, 14, ui::FG4);
+}
+
+fn void shutdown() { handler.close(); }
+```
+
 ## App icon
 
 On Wayland a window has no icon of its own: the shell (taskbar, switcher, launcher) matches the window's app_id to

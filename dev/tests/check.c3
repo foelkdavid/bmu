@@ -36,6 +36,7 @@ fn int main(String[] args)
 	check_app_id();
 	check_places();
 	check_audio();
+	check_desktop();
 	expect_str(ui::VERSION, env::PROJECT_VERSION, "ui::VERSION matches project.json version");
 	if (failed) { io::printfn("%d FAILED, %d passed", failed, passed); libc::exit(1); }
 	io::printfn("ALL BMU CHECKS PASSED (%d)", passed);
