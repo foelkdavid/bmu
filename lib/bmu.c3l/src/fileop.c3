@@ -1,5 +1,5 @@
 module bmu::fileop @feat(LINUX);
-import std::thread, std::core::string, std::math, libc;
+import std::thread, std::core::string, std::math, std::time::clock, libc;
 import bmu::txt, bmu::sys, bmu::archive;
 
 // bmu::fileop - background copy / move / trash / delete for file managers (Linux x86_64, no raylib).
@@ -16,8 +16,8 @@ import bmu::txt, bmu::sys, bmu::archive;
 //   4. Commit (not cancellable, fast): temporaries are renamed into place without overwriting
 //      (renameat2 RENAME_NOREPLACE); a replaced item is moved aside first and deleted only afterwards.
 //      Cross-filesystem moves call syncfs() on the target before the sources are deleted.
-// Copied data is flushed to the target disk while copying (syncfs every FLUSH_STEP bytes, and once more before
-// the commit), and progress counts flushed bytes: the bar follows the disk's real speed, cancel works the
+// Copied data is flushed to the target disk while copying (syncfs every FLUSH_STEP bytes or FLUSH_TIME, and once
+// more before the commit), and progress counts flushed bytes: the bar follows the disk's real speed, cancel works the
 // whole time, and the commit never waits for gigabytes still in the page cache.
 // TRASH follows the freedesktop.org Trash spec (home trash only). DELETE is permanent.
 // EXTRACT unpacks an archive (bmu::archive) into a hidden staging folder in the target, then commits the
@@ -78,6 +78,7 @@ const int MAX_DEPTH = 128;       // folder nesting below an item
 const usz CHUNK = 4 * 1024 * 1024; // bytes per copy step (cancel / progress granularity)
 const usz FALLBACK_BUF = 1024 * 1024;
 const ulong FLUSH_STEP = 32 * 1024 * 1024; // copied bytes between flushes to the target disk
+const long FLUSH_TIME = 500_000_000;       // ns: flush at least this often while copying (trees of small files)
 
 enum Kind { COPY, MOVE, TRASH, DELETE, COUNT, RESTORE, EXTRACT }
 enum State { IDLE, SCANNING, RUNNING, CONFLICT, FINISHING, DONE, CANCELLED, FAILED }
@@ -98,6 +99,8 @@ struct Progress
 	bool conflict_dir;   // the conflicting target is a folder
 	char[256] current;   // name being processed
 	char[256] conflict;  // name that exists in the target (state CONFLICT)
+	int removed;         // MOVE across filesystems, FINISHING: source files/folders deleted so far
+	int remove_total;    // ... and to delete (0 = not deleting sources)
 	char[512] error;     // state FAILED: what went wrong
 	CInt err;            // errno of that error (0 = none / not a system error): EACCES / EPERM mean "permission denied"
 }
@@ -141,6 +144,8 @@ struct Job
 	int count;
 	char* buf;
 	ulong unflushed;     // copied bytes not yet flushed to the target disk (not yet counted as done)
+	Clock last_flush;
+	int copied_nodes;    // files, folders, links and skipped specials of COPY items (sources a MOVE deletes)
 	int pid;
 	bool elevated;       // run through the root helper (start_elevated)
 	char[512] secret;    // password for sudo; wiped as soon as it is written
@@ -245,6 +250,8 @@ fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_d
 	self.has_all = false;
 	self.p = { .state = SCANNING, .kind = kind, .items = (int)names.len, .can_cancel = true };
 	self.unflushed = 0;
+	self.last_flush = clock::now();
+	self.copied_nodes = 0;
 	if (catch self.worker.create(&work, self))
 	{
 		self.wake.destroy(); self.mutex.destroy();
@@ -546,6 +553,13 @@ fn void flush(Job* j, CInt fd) @private
 	if (fd >= 0) c_syncfs(fd);
 	add_done(j, 0, j.unflushed);
 	j.unflushed = 0;
+	j.last_flush = clock::now();
+}
+
+<* Flush when FLUSH_STEP bytes are pending or FLUSH_TIME passed with some pending (small files fill no step). *>
+fn void maybe_flush(Job* j, CInt fd) @private
+{
+	if (j.unflushed >= FLUSH_STEP || (j.unflushed && (long)j.last_flush.to_now() >= FLUSH_TIME)) flush(j, fd);
 }
 
 <* Flush what is left of the copies (before the commit; still cancellable). *>
@@ -611,13 +625,15 @@ fn bool copy_file(Job* j, libc::Stat* st) @private
 		if (n == 0) break;
 		copied += (ulong)n;
 		j.unflushed += (ulong)n;
-		if (j.unflushed >= FLUSH_STEP) flush(j, out);
+		maybe_flush(j, out);
 	}
+	maybe_flush(j, out);
 	c_fchmod(out, st.st_mode & 0o7777);
 	Timespec[2] t = { { st.st_atime, st.st_atime_nsec }, { st.st_mtime, st.st_mtime_nsec } };
 	c_futimens(out, &t);
 	if (sys::c_close(out) != 0) return fail(j, "Cannot write", name);
 	own(j);
+	j.copied_nodes++;
 	add_done(j, 1, 0);
 	return true;
 }
@@ -648,11 +664,13 @@ fn bool copy_tree(Job* j, int depth) @private
 			if (c_symlink((ZString)&target, zp(&j.dp)) != 0) return fail(j, "Cannot create link", name);
 			own(j);
 			set_times(zp(&j.dp), &st);
+			j.copied_nodes++;
 			add_done(j, 1, 0);
 			return true;
 		case S_IFDIR:
 			break;
 		default:
+			j.copied_nodes++;
 			j.mutex.lock();
 			j.p.skipped++;
 			j.p.files_done++;
@@ -681,12 +699,14 @@ fn bool copy_tree(Job* j, int depth) @private
 	if (!ok) return false;
 	c_chmod(zp(&j.dp), st.st_mode & 0o7777);
 	set_times(zp(&j.dp), &st);
+	j.copied_nodes++;
 	add_done(j, 1, 0);
 	return true;
 }
 
-<* rm -rf j.dp (never follows links). `count` reports progress, `cancellable` honours cancel. *>
-fn bool remove_tree(Job* j, int depth, bool count, bool cancellable) @private
+<* rm -rf j.dp (never follows links). `count` reports progress, `cancellable` honours cancel, `tally` counts
+   Progress.removed (MOVE deleting its sources). *>
+fn bool remove_tree(Job* j, int depth, bool count, bool cancellable, bool tally = false) @private
 {
 	if (cancellable && stopped(j)) return false;
 	String name = txt::basename(txt::view(&j.dp));
@@ -706,7 +726,7 @@ fn bool remove_tree(Job* j, int depth, bool count, bool cancellable) @private
 			String child = ((ZString)&e.name).str_view();
 			if (child == "." || child == "..") continue;
 			if (!push(&j.dp, &j.dl, child)) { *c_errno() = 0; ok = fail(j, "Path too long", child); }
-			else { ok = remove_tree(j, depth + 1, count, cancellable); }
+			else { ok = remove_tree(j, depth + 1, count, cancellable, tally); }
 			pop(&j.dp, &j.dl, keep);
 		}
 		sys::c_closedir(d);
@@ -720,6 +740,12 @@ fn bool remove_tree(Job* j, int depth, bool count, bool cancellable) @private
 		if (c_unlink(zp(&j.dp)) != 0) return fail(j, "Cannot delete", name);
 	}
 	if (count) add_done(j, 1, (st.st_mode & S_IFMT) == S_IFREG ? (ulong)st.st_size : 0);
+	if (tally)
+	{
+		j.mutex.lock();
+		j.p.removed++;
+		j.mutex.unlock();
+	}
 	return true;
 }
 
@@ -970,7 +996,10 @@ fn State transfer(Job* j) @private
 	if (!ok) return FAILED;
 	if (j.kind == MOVE)
 	{
-		// Cross-filesystem move: make the copies durable before deleting the sources.
+		// Cross-filesystem move: make the copies durable before deleting the sources (progress in removed / remove_total).
+		j.mutex.lock();
+		j.p.remove_total = j.copied_nodes;
+		j.mutex.unlock();
 		for (int i = 0; i < j.count; i++)
 		{
 			Item* it = &j.items[i];
@@ -983,7 +1012,7 @@ fn State transfer(Job* j) @private
 			}
 			set_current(j, src_name(j, i));
 			set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
-			if (!remove_tree(j, 0, false, false)) return FAILED; // copy is complete; the error says which source remains
+			if (!remove_tree(j, 0, false, false, true)) return FAILED; // copy is complete; the error says which source remains
 		}
 	}
 	return DONE;
@@ -1692,7 +1721,7 @@ fn State relay(Job* j, CInt to, CInt from, CInt errfd, String token) @private
 		if (fds[0].revents) r.fill();
 		while (r.next(&line))
 		{
-			String[8] f;
+			String[10] f;
 			int n = fields(&line, &f);
 			if (!n) continue;
 			if (!ready)
@@ -1722,6 +1751,7 @@ fn State relay(Job* j, CInt to, CInt from, CInt errfd, String token) @private
 					j.p.bytes_total = (ulong)num(f[5]);
 					j.p.skipped = (int)num(f[6]);
 					j.p.can_cancel = f[7] == "1";
+					if (n >= 10) { j.p.removed = (int)num(f[8]); j.p.remove_total = (int)num(f[9]); }
 					j.mutex.unlock();
 				case "C":
 					char[256] name;
@@ -1846,7 +1876,7 @@ fn int helper_main(String[] args) => @pool()
 		if (job.finished(&p))
 		{
 			// Final numbers first, so the app sees complete totals.
-			write_str(1, string::tformat("P %d %d %d %d %d %d 0\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped));
+			write_str(1, string::tformat("P %d %d %d %d %d %d 0 %d %d\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped, p.removed, p.remove_total));
 			char[1100] h;
 			write_str(1, string::tformat("E %d %d %s\n", (int)p.state, p.err, hex_of(txt::view(&p.error), &h)));
 			return p.state == DONE ? 0 : 1;
@@ -1858,9 +1888,9 @@ fn int helper_main(String[] args) => @pool()
 			write_str(1, string::tformat("Q %d %s\n", p.conflict_dir ? 1 : 0, hex_of(txt::view(&p.conflict), &h)));
 			asked = true;
 		}
-		if (p.state != last.state || p.files_done != last.files_done || p.bytes_done != last.bytes_done || p.files_total != last.files_total || p.can_cancel != last.can_cancel)
+		if (p.state != last.state || p.files_done != last.files_done || p.bytes_done != last.bytes_done || p.files_total != last.files_total || p.can_cancel != last.can_cancel || p.removed != last.removed || p.remove_total != last.remove_total)
 		{
-			write_str(1, string::tformat("P %d %d %d %d %d %d %d\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped, p.can_cancel ? 1 : 0));
+			write_str(1, string::tformat("P %d %d %d %d %d %d %d %d %d\n", (int)p.state, p.files_done, p.files_total, p.bytes_done, p.bytes_total, p.skipped, p.can_cancel ? 1 : 0, p.removed, p.remove_total));
 		}
 		if (txt::view(&p.current) != txt::view(&last.current))
 		{

@@ -135,6 +135,7 @@ fn void check_fileop() => @pool()
 				while (!job.finished(&p)) sys::c_usleep(500);
 				String moved = txt::join(txt::view(&other), "tree/sub/y.txt");
 				expect(p.state == DONE && sys::is_file(moved) && !there("b/tree"), "fileop: cross-filesystem move");
+				expect(p.remove_total > 0 && p.removed == p.remove_total, "fileop: cross-filesystem move counts removed sources");
 			}
 			if (job.start(DELETE, "/dev/shm", { txt::basename(txt::view(&other)) })) { while (!job.finished(&p)) sys::c_usleep(500); }
 		}

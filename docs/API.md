@@ -527,7 +527,7 @@ no raylib). Zero-initialize `fileop::Job` at a stable address (a global); all me
 | `fileop::SudoRun`: `run.start(String[] argv, char[] password, bool keep_display = true, String dir = "") -> bool`, `run.poll() -> SudoState`, `run.error` | Start a program as root (e.g. an editor for a root-owned file) via `elevate_cmd` (`sudo -k -S`, no cached credentials). The password is written once and wiped; with `keep_display` the `WAYLAND_DISPLAY` / `XDG_RUNTIME_DIR` / `DISPLAY` variables pass through `env` so windows can open. A non-empty `dir` is the program's working directory (e.g. a terminal opened in a folder). The program runs in its own session (quitting the app leaves it running); a thread drains its stderr and reaps it, so `poll()` (`RUNNING`, `DONE`, `FAILED`) is a lock + copy. `error`: "Wrong password", sudo's refusal, or "The program failed". Stable address while running. |
 | `fileop::elevate_cmd` | `String[]`, default `{ "sudo", "-k", "-S", "-p", "", "--" }`; tests set `{}` to run the helper unprivileged. |
 | `job.busy() -> bool` | From `start` until `finished` reaped it. |
-| `job.status(Progress* out)` | Snapshot: `state`, `kind`, `items`, `files_done/total`, `bytes_done/total`, `skipped`, `can_cancel`, `current`, `conflict`, `conflict_dir`, `error`, `err` (errno of the error: 13 EACCES / 1 EPERM = permission denied, a reason to offer `start_elevated`). `IDLE` when no job. |
+| `job.status(Progress* out)` | Snapshot: `state`, `kind`, `items`, `files_done/total`, `bytes_done/total`, `skipped`, `can_cancel`, `removed/remove_total` (cross-filesystem MOVE in `FINISHING`: sources deleted / to delete, 0 total = not deleting), `current`, `conflict`, `conflict_dir`, `error`, `err` (errno of the error: 13 EACCES / 1 EPERM = permission denied, a reason to offer `start_elevated`). `IDLE` when no job. |
 | `job.answer(Answer a, bool all = false)` | Reply in state `CONFLICT`: `REPLACE`, `SKIP`, `KEEP_BOTH` ("name (2).ext"); `all` reuses it for later conflicts of this job. |
 | `job.cancel()` | Ask the worker to stop and roll back; ignored while `can_cancel` is false. |
 | `job.finished(Progress* out) -> bool` | True **once** after the worker ended: joins it, frees its memory, returns the final progress (`DONE`, `CANCELLED`, `FAILED` + `error`). Poll every frame while busy. |
@@ -547,10 +547,11 @@ How it stays safe (COPY / MOVE are all-or-nothing):
 - Cancel or an error before the commit removes the temporaries, renames moved items back and restores replaced
   ones; sources are never touched. The commit renames temporaries into place without overwriting
   (`renameat2(RENAME_NOREPLACE)`); a replaced target is moved aside first and deleted only afterwards.
-- Copied data is flushed to the target disk while copying (`syncfs` every 32 MiB and before the commit); `bytes_done`
+- Copied data is flushed to the target disk while copying (`syncfs` every 32 MiB or at least every 0.5 s while bytes are pending, and before the commit); `bytes_done`
   counts flushed bytes, so progress follows the disk's real speed, cancel works until the commit, and the commit
   never waits for data still in the page cache.
-- Cross-filesystem moves `syncfs` the target before deleting the sources. If the commit fails part way, finished
+- Cross-filesystem moves `syncfs` the target before deleting the sources; that deletion runs in `FINISHING` (not
+  cancellable) and reports `removed` of `remove_total`, so a UI can show it as its own step. If the commit fails part way, finished
   items stay, the rest is undone and no source is deleted: nothing is lost, at worst something exists twice.
 - `TRASH` follows the freedesktop.org Trash spec (`files/` + `info/NAME.trashinfo`, collisions become `NAME.2`);
   only the home trash, no per-volume `.Trash-UID` folders (RESTORE refuses relative recorded paths). Trash/delete/restore cancel stops between items (no undo); restoring across filesystems is refused.
