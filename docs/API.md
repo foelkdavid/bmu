@@ -133,6 +133,7 @@ Icons (Nerd Font / Font Awesome codepoints, all `String` constants):
 | `I_MUTE` (speaker off) | `I_RECORD` (filled circle) | `I_PAUSE` | `I_REPEAT` (loop) |
 | `I_SLIDERS` | `I_HEADPHONES` | `I_USER` | `I_USERS` |
 | `I_CHAT` (speech bubbles) | `I_GLOBE` | `I_SEND` (paper plane) | `I_BOOK` |
+| `I_DISC` (optical disc) | | | |
 
 To add one: find its codepoint (e.g. on nerdfonts.com/cheat-sheet), add the `String` constant (`"\uF0C7"`: C3 escapes are `\uXXXX`, not `\u{...}`) and pass
 the codepoint to `load_font`. To add it to the library, append to `ICON_CODEPOINTS` and the `I_*` list in `ui.c3`.
