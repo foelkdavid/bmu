@@ -737,6 +737,19 @@ fn bool copy_progress(Rect bar) => @pool()
 	return true;
 }
 
+// Entries of a running copy/move (from any window of the app, or another bmu app) are not selectable.
+fileop::Busy busy;               // global: ~130 KB
+bool[1024] row_busy;
+
+fn void start_busy_tracking() { busy.open(); }   // once, after ui::open
+
+// Every frame: recompute only when the running operations changed (and after listing `dir`).
+fn void track_busy(String dir, String[] names)
+{
+	if (!busy.poll()) return;
+	foreach (i, n : names[:math::min(names.len, row_busy.len)]) row_busy[i] = busy.find(dir, n).found;
+}
+
 // Draw while ui::close_requested is set: Cancel keeps the app open, Quit rolls the copy back and leaves.
 fn void quit_guard()
 {

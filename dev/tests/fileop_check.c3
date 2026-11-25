@@ -12,6 +12,7 @@ extern fn CInt lstat(ZString path, libc::Stat* st) @cname("lstat");
 
 char[256] root;
 fileop::Job job;
+fileop::Busy busy;   // ~130 KB: global, like in an app
 
 fn String at(String rel) => txt::join(txt::view(&root), rel);
 
@@ -222,6 +223,38 @@ fn void check_fileop() => @pool()
 	expect(!fileop::trash_info(at("data/Trash/files"), "nope", &origin), "fileop: trash_info missing record");
 	p = run(RESTORE, "data/Trash/files", { "sp ace%.txt" });
 	expect(p.state == DONE && get("r/sp ace%.txt") == "s", "fileop: restore decodes percent-encoding");
+
+	// Busy registry: a job paused at a name conflict is visible to readers; it disappears when the job ends.
+	setenv("XDG_RUNTIME_DIR", at("run").zstr_tcopy(), 1);
+	sys::mkdirs(at("run"));
+	sys::mkdirs(at("busy/src"));
+	sys::mkdirs(at("busy/dst"));
+	put("busy/src/one", "1");
+	put("busy/src/two", "2");
+	put("busy/dst/two", "old");
+	expect(busy.open(), "fileop: busy open");
+	expect(!busy.has_dir(at("busy/src")), "fileop: busy empty at first");
+	put("run/bmu-fileop/999999999-1", "bmu-fileop1\0" "1\0" "999999999\0/nowhere\0ghost\0");
+	if (job.start(COPY, at("busy/src"), { "one", "two" }, at("busy/dst")))
+	{
+		for (int spins = 0; spins < 20000 && !job.finished(&p); spins++)
+		{
+			job.status(&p);
+			if (p.state == CONFLICT) break;
+			sys::c_usleep(500);
+		}
+		busy.poll();
+		fileop::BusyHit h = busy.find(at("busy/src"), "two");
+		expect(busy.has_dir(at("busy/src")) && h.found && h.own && h.kind == COPY && h.item == 1, "fileop: busy finds a running item");
+		expect(!busy.find(at("busy/src"), "three").found && !busy.find(at("busy"), "two").found, "fileop: busy misses others");
+		expect(!busy.has_dir("/nowhere") && !there("run/bmu-fileop/999999999-1"), "fileop: busy drops records of dead processes");
+		job.answer(SKIP, true);
+		while (!job.finished(&p)) sys::c_usleep(500);
+		busy.poll();
+		expect(!busy.find(at("busy/src"), "two").found && busy.count == 0, "fileop: busy record removed at the end");
+	}
+	else { expect(false, "fileop: busy job start"); }
+	busy.close();
 
 	expect(!job.start(COPY, "relative", { "x" }, "/tmp"), "fileop: refuse relative source");
 	expect(!job.start(COPY, "/tmp", { "a/b" }, "/tmp"), "fileop: refuse names with slash");

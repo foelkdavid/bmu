@@ -168,6 +168,7 @@ struct Job
 	Clock last_flush;
 	int copied_nodes;    // files, folders, links and skipped specials of COPY items (sources a MOVE deletes)
 	int cur;             // item that progress is counted for (-1 = none)
+	char[4096] record;   // this job's registry record (fileop_busy.c3), "" = none
 	int flush_from;      // first item that may still have unflushed bytes
 	int pid;
 	bool elevated;       // run through the root helper (start_elevated)
@@ -425,6 +426,7 @@ fn int work(void* arg) @private
 	// Temp memory for the few name/format helpers (only the main thread has one implicitly).
 	@pool_init(mem, 64 * 1024)
 	{
+		announce(j);
 		if (j.elevated)
 		{
 			end = run_elevated(j);
@@ -443,6 +445,7 @@ fn int work(void* arg) @private
 			}
 		}
 	};
+	retract(j);   // before `ended`: once the app sees the end, other windows see it too
 	j.mutex.lock();
 	j.p.state = end;
 	j.p.can_cancel = false;
@@ -1909,6 +1912,7 @@ fn State relay(Job* j, CInt to, CInt from, CInt errfd, String token) @private
 *>
 fn int helper_main(String[] args) => @pool()
 {
+	helper_mode = true;
 	String token = args[2];
 	if (!write_str(1, "READY\n")) return 1;
 	LineReader* r = mem::new(LineReader);
