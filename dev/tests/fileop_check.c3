@@ -254,6 +254,15 @@ fn void check_fileop() => @pool()
 		expect(!busy.find(at("busy/src"), "two").found && busy.count == 0, "fileop: busy record removed at the end");
 	}
 	else { expect(false, "fileop: busy job start"); }
+	// A request waiting in this process's queue, published for the other windows.
+	char[4096] rec;
+	expect(fileop::publish_queued(&job, MOVE, at("busy/src"), { "one" }, &rec), "fileop: publish_queued");
+	busy.poll();
+	fileop::BusyHit qh = busy.find(at("busy/src"), "one");
+	expect(qh.found && qh.queued && qh.kind == MOVE && qh.own, "fileop: busy sees a queued request");
+	fileop::unpublish(&rec);
+	busy.poll();
+	expect(!busy.find(at("busy/src"), "one").found && rec[0] == 0, "fileop: unpublish removes it");
 	busy.close();
 
 	// cancel_item: one item left out (asked while the job waits on a conflict), the rest is copied.
@@ -283,6 +292,9 @@ fn void check_fileop() => @pool()
 			sys::c_usleep(500);
 		}
 		job.item_status(0, &dip);
+		fileop::ItemProgress[3] kept;
+		int nk = job.item_status(0, &kept, true);
+		expect(nk == 2 && kept[0].index == 0 && kept[1].index == 2 && job.items_kept() == 2 && txt::view(&kept[1].name) == "keep2", "fileop: kept_only rows skip the left-out item");
 		while (!job.finished(&p)) sys::c_usleep(500);
 		expect(p.state == DONE && p.dropped == 1 && p.bytes_total == 4 && p.bytes_done == 4, "fileop: dropped item left out of the totals");
 		expect(dip[1].state == CANCELLED && dip[0].state == DONE && dip[2].state == DONE, "fileop: item states after cancel_item");

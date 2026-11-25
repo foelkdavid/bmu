@@ -28,23 +28,54 @@ fn bool registry_dir(char[] out) => @pool()
 
 fn bool publishes(Kind k) @private => k == COPY || k == MOVE || k == TRASH || k == DELETE || k == RESTORE;
 
-<* Worker: write this job's record (temporary name, then renamed into place: readers never see half a record). *>
+<* Write a record (temporary name, then renamed into place: readers never see half a record). *>
+fn bool write_record(ulong id, Kind kind, bool queued, String src_dir, String[] names, char[] out) @private => @pool()
+{
+	char[4096] dir;
+	if (!registry_dir(&dir)) return false;
+	int pid = c_getpid();
+	String final = txt::join(txt::view(&dir), string::tformat("%d-%x", pid, id));
+	String tmp = txt::join(txt::view(&dir), string::tformat(".%d-%x.tmp", pid, id));
+	DString body;
+	body.tinit();
+	body.appendf("bmu-fileop2\0%d\0%d\0%d\0%s\0", (int)kind, pid, queued ? 1 : 0, src_dir);
+	foreach (n : names) { body.append(n); body.append_char('\0'); }
+	CInt fd = sys::c_open(tmp.zstr_tcopy(), O_WRONLY | O_CREAT | 0x200 | O_CLOEXEC, (CInt)0o600); // O_TRUNC
+	if (fd < 0) return false;
+	bool ok = write_str(fd, body.str_view());
+	sys::c_close(fd);
+	if (!ok || sys::c_rename(tmp.zstr_tcopy(), final.zstr_tcopy()) != 0) { c_unlink_rec(tmp.zstr_tcopy()); return false; }
+	txt::set(out, final);
+	return true;
+}
+
+<* Worker: (re)write this job's record with the items still in it (left-out ones are dropped from it). *>
 fn void announce(Job* j) @private => @pool()
 {
-	j.record[0] = 0;
-	if (helper_mode || !publishes(j.kind) || !j.count) return;
-	char[4096] dir;
-	if (!registry_dir(&dir)) return;
-	String final = txt::join(txt::view(&dir), string::tformat("%d-%x", j.pid, (uptr)j));
-	String tmp = txt::join(txt::view(&dir), string::tformat(".%d-%x.tmp", j.pid, (uptr)j));
-	CInt fd = sys::c_open(tmp.zstr_tcopy(), O_WRONLY | O_CREAT | 0x200 | O_CLOEXEC, (CInt)0o600); // O_TRUNC
-	if (fd < 0) return;
-	String head = string::tformat("bmu-fileop1\0%d\0%d\0%s\0", (int)j.kind, j.pid, txt::view(&j.src_dir));
-	usz names_len = j.items[j.count - 1].src + src_name(j, j.count - 1).len + 1;
-	bool ok = write_str(fd, head) && write_str(fd, (String)j.names[:names_len]);
-	sys::c_close(fd);
-	if (!ok || sys::c_rename(tmp.zstr_tcopy(), final.zstr_tcopy()) != 0) { c_unlink_rec(tmp.zstr_tcopy()); return; }
-	txt::set(&j.record, final);
+	if (helper_mode || !publishes(j.kind) || !j.count) { j.record[0] = 0; return; }
+	String[] names = mem::talloc_array(String, (usz)j.count);
+	int n;
+	for (int i = 0; i < j.count; i++) if (j.items[i].st != CANCELLED) names[n++] = src_name(j, i);
+	if (!write_record(j.id(), j.kind, false, txt::view(&j.src_dir), names[:n], &j.record)) j.record[0] = 0;
+}
+
+<*
+ Publish a request that waits in this process's own queue (no Job running yet), so other processes can mark its
+ items too (BusyHit.queued). Pass the Job that will run it: its record replaces this one when it starts, under
+ the same name. Call again after the request changed; unpublish() when it is dropped without starting.
+ One small file write (tmpfs): call on the event, not per frame.
+*>
+fn bool publish_queued(Job* job, Kind kind, String src_dir, String[] names, char[] record)
+{
+	if (!publishes(kind)) return false;
+	return write_record(job.id(), kind, true, src_dir, names, record);
+}
+
+<* Remove a record written by publish_queued (no-op when `record` is ""). *>
+fn void unpublish(char[] record)
+{
+	if (record[0]) c_unlink_rec(zp(record));
+	record[0] = 0;
 }
 
 <* Worker, at the end: remove the record. *>
@@ -60,6 +91,7 @@ struct BusyJob
 	Kind kind;
 	int pid;
 	bool own;            // started by this process
+	bool queued;         // waits in that process's queue (publish_queued), not running yet
 	ulong id;            // Job.id() of that job (in its process)
 	char[4096] src_dir;
 }
@@ -72,6 +104,7 @@ struct BusyHit
 	bool own;            // a job of this process: `item` indexes its Job.item_status
 	int item;            // index of the name in its job
 	ulong job;           // its Job.id(): with `own`, which of this process's jobs
+	bool queued;         // its operation waits in a queue (not running yet)
 }
 
 struct BusySlot @private
@@ -143,7 +176,7 @@ fn BusyHit Busy.find(&self, String dir, String name)
 			if (!s.off) break;
 			if (s.job == j && ((ZString)(self.blob + s.off - 1)).str_view() == name)
 			{
-				return { .found = true, .kind = self.job[j].kind, .own = self.job[j].own, .item = s.item, .job = self.job[j].id };
+				return { .found = true, .kind = self.job[j].kind, .own = self.job[j].own, .item = s.item, .job = self.job[j].id, .queued = self.job[j].queued };
 			}
 		}
 	}
@@ -189,12 +222,15 @@ fn void Busy.load(&self) => @pool()
 		String? body = sys::read_temp(path);
 		if (catch body) continue;
 		if (body.len > BUSY_MAX_RECORD) continue;
-		String[] f = body.tsplit("\0", 4);
-		if (f.len < 4 || f[0] != "bmu-fileop1") continue;
+		bool v2 = body.starts_with("bmu-fileop2\0");
+		String[] f = body.tsplit("\0", v2 ? 5 : 4);
+		if (f.len < (v2 ? 5 : 4) || (f[0] != "bmu-fileop1" && !v2)) continue;
 		int? kind = f[1].to_int();
 		int? pid = f[2].to_int();
 		if (catch kind) continue;
 		if (catch pid) continue;
+		bool queued = v2 && f[3] == "1";
+		if (v2) f[3] = f[4];
 		if (kind < 0 || kind > (int)Kind.EXTRACT || f[3].len == 0) continue;
 		if (!pid_alive(pid)) { c_unlink_rec(path.zstr_tcopy()); continue; } // left by a crashed process
 		String rest = f[3];                      // "src_dir\0name\0name\0…"
@@ -203,7 +239,7 @@ fn void Busy.load(&self) => @pool()
 		if (try zero) dir_end = (usz)zero;
 		if (dir_end >= 4096) continue;
 		BusyJob* bj = &self.job[self.jobs];
-		*bj = { .kind = (Kind)kind, .pid = pid, .own = pid == me };
+		*bj = { .kind = (Kind)kind, .pid = pid, .own = pid == me, .queued = queued };
 		String fname = txt::view(&list[i].name);   // "PID-JOBHEX"
 		sz? dash = fname.index_of_char('-');
 		if (try dash) foreach (c : fname[(usz)dash + 1..]) bj.id = bj.id * 16 + (ulong)(c >= 'a' ? c - 'a' + 10 : c - '0');

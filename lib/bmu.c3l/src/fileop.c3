@@ -119,6 +119,7 @@ struct ItemProgress
 	ulong bytes_total;
 	char[256] name;      // the source name
 	bool leaving;        // cancel_item was asked; the worker is undoing it (ends CANCELLED)
+	int index;           // its index among all items (for cancel_item; differs with `kept_only`)
 }
 
 struct Item @private
@@ -319,22 +320,52 @@ fn int Job.item_count(&self) => self.started && !self.elevated && self.kind != C
 
 <*
  Progress of items `first`, `first + 1`… into `out` (one lock for the whole range: ask only for the rows you
- show). Returns how many were filled.
+ show). Returns how many were filled. With `kept_only`, left-out items (cancel_item) are skipped and `first`
+ counts kept items only; ItemProgress.index is each one's real index.
 *>
-fn int Job.item_status(&self, int first, ItemProgress[] out)
+fn int Job.item_status(&self, int first, ItemProgress[] out, bool kept_only = false)
 {
 	int total = self.item_count();
 	if (first < 0 || first >= total) return 0;
-	int n = math::min((int)out.len, total - first);
+	int n;
 	self.mutex.lock();
-	for (int k = 0; k < n; k++)
+	if (!kept_only)
 	{
-		Item* it = &self.items[first + k];
-		out[k] = { .state = it.st, .files_done = it.f_done, .files_total = it.f_total, .bytes_done = it.b_done, .bytes_total = it.b_total, .leaving = it.drop && it.st != CANCELLED };
+		n = math::min((int)out.len, total - first);
+		for (int k = 0; k < n; k++) out[k] = progress_of(self, first + k);
+	}
+	else
+	{
+		// Items not left out: the first-th of them on (a walk over the items: cheap for up to MAX_ITEMS).
+		int seen;
+		for (int i = 0; i < total && n < (int)out.len; i++)
+		{
+			Item* it = &self.items[i];
+			if (it.drop || it.st == CANCELLED) continue;
+			if (seen++ < first) continue;
+			out[n++] = progress_of(self, i);
+		}
 	}
 	self.mutex.unlock();
-	for (int k = 0; k < n; k++) txt::set(&out[k].name, src_name(self, first + k)); // names never change while running
+	for (int k = 0; k < n; k++) txt::set(&out[k].name, src_name(self, out[k].index)); // names never change while running
 	return n;
+}
+
+<* Items not left out (cancel_item asked or done): the rows to show when left-out items simply disappear. *>
+fn int Job.items_kept(&self)
+{
+	int total = self.item_count();
+	int n;
+	self.mutex.lock();
+	for (int i = 0; i < total; i++) if (!self.items[i].drop && self.items[i].st != CANCELLED) n++;
+	self.mutex.unlock();
+	return n;
+}
+
+fn ItemProgress progress_of(Job* j, int i) @private
+{
+	Item* it = &j.items[i];
+	return { .state = it.st, .files_done = it.f_done, .files_total = it.f_total, .bytes_done = it.b_done, .bytes_total = it.b_total, .leaving = it.drop && it.st != CANCELLED, .index = i };
 }
 
 <*
@@ -560,6 +591,7 @@ fn void forget(Job* j, int i) @private
 	it.f_total = it.f_done = 0;
 	it.b_total = it.b_done = 0;
 	j.mutex.unlock();
+	if (j.record[0]) announce(j);   // other windows stop marking it
 }
 
 <* No more cancel_item from here on (the last undo sweep follows). *>
