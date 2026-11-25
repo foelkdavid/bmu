@@ -148,7 +148,8 @@ fn BusyHit Busy.find(&self, String dir, String name)
 	return {};
 }
 
-fn void Busy.clear(&self) @private
+<* Forget the records read so far (load() rereads them). *>
+fn void Busy.clear(&self)
 {
 	libc::free(self.blob);
 	libc::free(self.slots);
