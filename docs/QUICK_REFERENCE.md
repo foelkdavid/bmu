@@ -131,7 +131,7 @@ fn void main(String[] args)
 | **image** (`image::`) | |
 | `Loader.request(path)`, `.take(&result)`, `.cancel()`, `.close()`, `.limits` (`max_edge`, `fit_w`/`fit_h` box, file/pixel caps) | bounded lazy CPU worker; downsamples on the worker; latest selection wins; `READY` transfers `Result.pixels` (caller unloads); original `width`/`height`; upload on UI thread only; see API limits |
 | **fileop** (`fileop::`) | |
-| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `SudoRun.start(argv, &password)` / `.poll()` runs a program as root; `start_elevated(..., &password)` runs a job as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)`; `Job.extract(archive, inner, names, dst, smart)` unpacks an archive (`EXTRACT`) |
+| `Job.start(kind, src_dir, names, dst_dir, permanent_fallback)`, `.status(&p)`, `.answer(a, all)`, `.cancel()`, `.finished(&p)`, `.close()` | background `COPY MOVE TRASH DELETE` (+ `COUNT` for sizes, `RESTORE` from the trash); `SudoRun.start(argv, &password, keep_display, dir)` / `.poll()` runs a program as root (optionally in `dir`); `start_elevated(..., &password)` runs a job as root via `sudo -k` (main must start with `if (fileop::is_helper(args)) return fileop::helper_main(args);`); progress, conflicts (`REPLACE SKIP KEEP_BOTH`), all-or-nothing cancel; `can_trash(path)`, `trash_dir(&out)`, `trash_info(files_dir, name, &path, &date)`; `Job.extract(archive, inner, names, dst, smart)` unpacks an archive (`EXTRACT`) |
 | **archive** (`archive::`) | |
 | `load()`, `is_archive(name)`, `stem(name)`, `Index.start(path)`, `.phase()`, `.progress(..)`, `.list(rel, &out, hidden)`, `.find(rel)`, `.size(i)` `.mtime(i)` `.is_dir(i)`, `.close()` | libarchive via lazy `dlopen`; background table of contents, folders listed from memory |
 | **find** (`find::`) | |
@@ -147,6 +147,7 @@ fn void main(String[] args)
 | `exists`, `is_dir`, `is_file`, `is_exec`, `mkdirs`, `move`, `realpath(&out, p)` | file system |
 | `home()`, `env(name)`, `now()` (unix seconds) | environment |
 | `list_dir(dir, Entry[] out, hidden) -> int` | dirs first, sorted; −1 = can't open; `Entry.name` (`char[256]`), `Entry.dir` |
+| `DirWatch.watch(dir)`, `.changed()`, `.close()` | notice entries added/removed/renamed in one folder (inotify; `changed()` is a non-blocking read, fine per frame) |
 | `read_temp(path) -> String?`, `read_tail(path, max)`, `write_file(path, data) -> bool` | whole file (temp) / last bytes / write |
 | `c_fork c_execvpe c_waitpid c_kill c_setsid c_dup2 c_open c_close c_usleep ...` | raw libc for process control |
 

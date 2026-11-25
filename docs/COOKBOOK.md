@@ -567,6 +567,36 @@ fn bool segmented(Rect r, String[] options, int* sel)
 }
 ```
 
+## Follow changes made by other programs
+
+Re-list a folder when something else adds, removes or renames entries in it (another window, a download, a shell).
+One non-blocking read per frame; the re-listing waits until the burst of events is over.
+
+```c3
+sys::DirWatch watch;
+sys::Entry[512] watched_entries;
+int watched_count;
+double relist_due; // 0 = nothing pending
+
+fn void open_folder(String dir)
+{
+	watched_count = sys::list_dir(dir, &watched_entries, false);
+	watch.watch(dir);  // on navigation only
+}
+
+fn void poll_folder(String dir)   // call every frame
+{
+	if (watch.changed() && relist_due == 0) relist_due = ui::now + 0.15;
+	if (relist_due > 0 && ui::now >= relist_due)
+	{
+		relist_due = 0;
+		watched_count = sys::list_dir(dir, &watched_entries, false); // keep the selection by name if the app has one
+	}
+}
+```
+
+`watch.close()` at exit. A folder that was deleted reports a change too: the next listing fails (−1), so go to an existing parent.
+
 ## Run a program and keep its output
 
 `sys` exposes the libc calls. Fork, redirect stdout/stderr to a log, exec; poll with `WNOHANG`.

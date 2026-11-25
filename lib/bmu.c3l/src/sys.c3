@@ -206,6 +206,60 @@ fn int list_dir(String dir, Entry[] out, bool hidden) @feat(LINUX) => @pool()
 	return n;
 }
 
+// Folder watch ----------------------------------------------------------------
+
+extern fn CInt c_inotify_init1(CInt flags) @cname("inotify_init1") @feat(LINUX) @private;
+extern fn CInt c_inotify_add_watch(CInt fd, ZString path, uint mask) @cname("inotify_add_watch") @feat(LINUX) @private;
+extern fn CInt c_inotify_rm_watch(CInt fd, CInt wd) @cname("inotify_rm_watch") @feat(LINUX) @private;
+extern fn sz c_read_watch(CInt fd, void* buf, usz n) @cname("read") @feat(LINUX) @private;
+
+// Entries appear, disappear or are renamed; the folder itself is deleted or moved. Content writes are not reported.
+const uint WATCH_MASK @private = 0x40 | 0x80 | 0x100 | 0x200 | 0x400 | 0x800 | 0x01000000; // MOVED_FROM/TO CREATE DELETE DELETE_SELF MOVE_SELF ONLYDIR
+
+<* Watches one folder for entries being added, removed or renamed (inotify; elsewhere nothing is reported).
+   Call watch() on navigation and changed() once per frame: a non-blocking read, no file system work. *>
+struct DirWatch
+{
+	CInt fd; // inotify descriptor + 1 (0 = not created yet)
+	CInt wd; // watch descriptor + 1 (0 = nothing watched)
+}
+
+<* Watch `dir` instead of the previous folder (the descriptor is created on first use). False = not watched. *>
+fn bool DirWatch.watch(&self, String dir) @feat(LINUX) => @pool()
+{
+	if (!self.fd)
+	{
+		CInt fd = c_inotify_init1(0x800 | 0x80000); // IN_NONBLOCK | IN_CLOEXEC
+		if (fd < 0) return false;
+		self.fd = fd + 1;
+	}
+	if (self.wd) c_inotify_rm_watch(self.fd - 1, self.wd - 1);
+	CInt wd = c_inotify_add_watch(self.fd - 1, dir.zstr_tcopy(), WATCH_MASK);
+	self.wd = wd < 0 ? 0 : wd + 1;
+	self.changed(); // drop events of the previous folder
+	return wd >= 0;
+}
+
+<* True when the watched folder changed since the last call (drains all pending events; never blocks). *>
+fn bool DirWatch.changed(&self) @feat(LINUX)
+{
+	if (!self.fd) return false;
+	char[4096] buf @align(8);
+	bool seen;
+	while (c_read_watch(self.fd - 1, &buf, buf.len) > 0) seen = true;
+	return seen && self.wd;
+}
+
+fn void DirWatch.close(&self) @feat(LINUX)
+{
+	if (self.fd) c_close(self.fd - 1);
+	*self = {};
+}
+
+fn bool DirWatch.watch(&self, String dir) @feat(!LINUX) => false;
+fn bool DirWatch.changed(&self) @feat(!LINUX) => false;
+fn void DirWatch.close(&self) @feat(!LINUX) {}
+
 fn int entry_compare(Entry* a, Entry* b)
 {
 	if (a.dir != b.dir) return a.dir ? -1 : 1;

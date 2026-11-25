@@ -128,6 +128,20 @@ fn void check_sys() => @pool()
 	expect(ordered, "large listing sorted");
 	expect(sys::list_dir(large, e[:1], true) == 1, "list_dir bounded output");
 	expect(sys::list_dir(large, e[:0], true) == 0, "list_dir zero capacity");
+	// Folder watch: quiet until an entry is created, deleted or renamed; content writes are not reported.
+	sys::DirWatch w;
+	expect(w.watch(large), "watch");
+	expect(!w.changed(), "watch quiet");
+	expect(sys::write_file(txt::join(large, "new"), "x"), "watch fixture");
+	expect(w.changed(), "watch create");
+	expect(!w.changed(), "watch drained");
+	expect(sys::move(txt::join(large, "new"), txt::join(large, "renamed")), "watch rename");
+	expect(w.changed(), "watch rename seen");
+	expect(sys::mkdirs(txt::join(root, "other")), "watch other");
+	expect(w.watch(txt::join(root, "other")), "watch switch");
+	expect(sys::write_file(txt::join(large, "ignored"), ""), "watch old folder");
+	expect(!w.changed(), "watch old folder not reported");
+	w.close();
 	// clean up
 	libc::system(string::tformat("rm -rf '%s'", root).zstr_tcopy());
 }

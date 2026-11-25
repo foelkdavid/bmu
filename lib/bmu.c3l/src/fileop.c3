@@ -1911,9 +1911,10 @@ fn int sudo_drain(void* arg) @private
  Wayland/X11 display variables are passed through `env` so GUI programs and terminals can open a window (sudo
  resets the environment). The password is written once and wiped from this struct's copy.
 *>
-fn bool SudoRun.start(&self, String[] argv, char[] password, bool keep_display = true) => @pool()
+fn bool SudoRun.start(&self, String[] argv, char[] password, bool keep_display = true, String dir = "") => @pool()
 {
 	if (self.started || !argv.len) return false;
+	ZString cwd = dir.len ? dir.zstr_tcopy() : null;
 	ZString[] args = mem::talloc_array(ZString, elevate_cmd.len + argv.len + 6);
 	usz a;
 	foreach (c : elevate_cmd) args[a++] = c.zstr_tcopy();
@@ -1938,6 +1939,7 @@ fn bool SudoRun.start(&self, String[] argv, char[] password, bool keep_display =
 		sys::c_dup2(in[0], 0);
 		sys::c_dup2(err[1], 2);
 		sys::c_setsid(); // not tied to the app: quitting it leaves the program running
+		if (cwd && sys::c_chdir(cwd) != 0) sys::c_exit(127);
 		sys::c_execvpe(args[0], &args[0], sys::environ);
 		sys::c_exit(127);
 	}
