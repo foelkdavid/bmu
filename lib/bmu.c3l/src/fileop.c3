@@ -118,6 +118,7 @@ struct ItemProgress
 	ulong bytes_done;
 	ulong bytes_total;
 	char[256] name;      // the source name
+	bool leaving;        // cancel_item was asked; the worker is undoing it (ends CANCELLED)
 }
 
 struct Item @private
@@ -129,6 +130,8 @@ struct Item @private
 	bool started;        // temporary created / rename done (rollback needed)
 	bool aside;          // existing target moved to its `.sms-old` name
 	bool committed;
+	bool removed;        // MOVE across drives: its source is deleted (undo = move it back across)
+	bool gone;           // TRASH: deleted permanently (other drive): cannot be put back
 	bool missing;        // DELETE: the item was already gone (retry after a partial failure)
 	ulong dev;
 	ulong pending;       // copied bytes not yet flushed (worker only)
@@ -172,6 +175,7 @@ struct Job
 	int cur;             // item that progress is counted for (-1 = none)
 	char[4096] record;   // this job's registry record (fileop_busy.c3), "" = none
 	int flush_from;      // first item that may still have unflushed bytes
+	bool drops_closed;   // the last undo sweep ran: cancel_item is refused from now on (guarded by mutex)
 	int pid;
 	bool elevated;       // run through the root helper (start_elevated)
 	char[512] secret;    // password for sudo; wiped as soon as it is written
@@ -280,6 +284,7 @@ fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_d
 	self.copied_nodes = 0;
 	self.cur = -1;
 	self.flush_from = 0;
+	self.drops_closed = false;
 	if (catch self.worker.create(&work, self))
 	{
 		self.wake.destroy(); self.mutex.destroy();
@@ -325,7 +330,7 @@ fn int Job.item_status(&self, int first, ItemProgress[] out)
 	for (int k = 0; k < n; k++)
 	{
 		Item* it = &self.items[first + k];
-		out[k] = { .state = it.st, .files_done = it.f_done, .files_total = it.f_total, .bytes_done = it.b_done, .bytes_total = it.b_total };
+		out[k] = { .state = it.st, .files_done = it.f_done, .files_total = it.f_total, .bytes_done = it.b_done, .bytes_total = it.b_total, .leaving = it.drop && it.st != CANCELLED };
 	}
 	self.mutex.unlock();
 	for (int k = 0; k < n; k++) txt::set(&out[k].name, src_name(self, first + k)); // names never change while running
@@ -333,20 +338,30 @@ fn int Job.item_status(&self, int first, ItemProgress[] out)
 }
 
 <*
- Leave out one top-level item (an index of item_status) while the rest continue: COPY / MOVE items that are
- waiting, being copied or already copied (until the commit: their copy is removed, a move is undone); for
- DELETE / TRASH / RESTORE only waiting items. False when that is no longer possible (FINISHING, done
- deleting, …). The item ends CANCELLED and counts in Progress.dropped; totals no longer include it.
+ Leave out one top-level item (an index of item_status) and restore just that item, while the rest continues.
+ Any time while the job runs: a waiting item is simply skipped; COPY / MOVE items being copied, copied or
+ already placed are undone on the worker (the copy removed, a move put back, across drives too, a replaced
+ target restored); a trashed item is put back from the trash. DELETE / RESTORE: waiting items only (deleted data
+ cannot come back). False once the job is ending or failing, or for items that cannot be undone. The item ends
+ CANCELLED (ItemProgress.leaving until then) and counts in Progress.dropped; totals no longer include it. An
+ undo that fails (e.g. the original name was taken meanwhile) leaves the item DONE and sets Progress.error.
 *>
 fn bool Job.cancel_item(&self, int i)
 {
 	if (i < 0 || i >= self.item_count()) return false;
 	self.mutex.lock();
 	defer self.mutex.unlock();
-	if (!self.p.can_cancel || self.p.state == FINISHING) return false;
+	State st = self.p.state;
+	if (st == DONE || st == CANCELLED || st == FAILED || self.cancel_req || self.p.error[0] || self.drops_closed) return false;
 	Item* it = &self.items[i];
 	if (it.drop || it.st == CANCELLED || it.st == SKIPPED) return false;
-	if (self.kind != COPY && self.kind != MOVE && it.st != WAITING) return false;
+	switch (self.kind)
+	{
+		case COPY:
+		case MOVE: break;
+		case TRASH: if (it.st != WAITING && (it.st != DONE || it.gone)) return false;
+		default: if (it.st != WAITING) return false;
+	}
 	it.drop = true;
 	self.wake.signal();
 	return true;
@@ -528,6 +543,13 @@ fn void drop_item(Job* j, int i) @private
 	it.plan = SKIP;
 	j.unflushed -= math::min(j.unflushed, it.pending);
 	it.pending = 0;
+	forget(j, i);
+}
+
+<* The item is left out: its numbers leave the totals, it ends CANCELLED. *>
+fn void forget(Job* j, int i) @private
+{
+	Item* it = &j.items[i];
 	j.mutex.lock();
 	j.p.files_total -= it.f_total;
 	j.p.bytes_total -= it.b_total;
@@ -538,6 +560,100 @@ fn void drop_item(Job* j, int i) @private
 	it.f_total = it.f_done = 0;
 	it.b_total = it.b_done = 0;
 	j.mutex.unlock();
+}
+
+<* No more cancel_item from here on (the last undo sweep follows). *>
+fn void close_drops(Job* j) @private
+{
+	j.mutex.lock();
+	j.drops_closed = true;
+	j.mutex.unlock();
+}
+
+<* Worker, after the commit: undo item i, which is in place in the target (cancel_item). *>
+fn void undo_placed(Job* j, int i) @private => @pool()
+{
+	Item* it = &j.items[i];
+	String name = src_name(j, i);
+	char[4096] dst, src, old;
+	set_path(&dst, &&(usz){}, txt::view(&j.dst_dir), txt::view(&it.dst));
+	set_path(&src, &&(usz){}, txt::view(&j.src_dir), name);
+	j.mutex.lock();
+	j.cur = -1;   // the work below is not progress of any item
+	j.mutex.unlock();
+	set_current(j, name);
+	bool ok = true;
+	if (it.plan == RENAME) { ok = rename_noreplace(zp(&dst), zp(&src)); }
+	else if (j.kind == COPY || !it.removed) { discard(j, zp(&dst)); }   // the source is still there
+	else { ok = move_back(j, i, &dst, &src); }
+	if (!ok)
+	{
+		fail(j, "Could not put back", name);
+		j.mutex.lock();
+		it.drop = false;
+		j.mutex.unlock();
+		return;
+	}
+	if (it.aside)
+	{
+		temp_path(j, i, "old", &old);
+		rename_noreplace(zp(&old), zp(&dst));
+		it.aside = false;
+	}
+	if (j.kind == MOVE && it.plan == COPY && !it.removed)
+	{
+		j.mutex.lock();
+		j.p.remove_total -= math::min(j.p.remove_total, it.f_done);
+		j.mutex.unlock();
+	}
+	it.started = false;
+	it.committed = false;
+	it.plan = SKIP;
+	forget(j, i);
+}
+
+<* A cross-drive move whose source is already deleted: copy it back (temporary name, then renamed into place). *>
+fn bool move_back(Job* j, int i, char[] placed, char[] original) @private => @pool()
+{
+	String src_dir = txt::view(&j.src_dir);
+	char[4096] tmp;
+	if (!set_path(&tmp, &&(usz){}, src_dir, string::tformat(".sms-back-%d-%d", j.pid, i))) return false;
+	// Copying back is not progress of the job: keep its numbers as they are.
+	j.mutex.lock();
+	int files_done = j.p.files_done;
+	ulong bytes_done = j.p.bytes_done;
+	j.mutex.unlock();
+	ulong unflushed = j.unflushed;
+	int nodes = j.copied_nodes;
+	txt::set(&j.sp, txt::view(placed));
+	j.sl = txt::view(placed).len;
+	txt::set(&j.dp, txt::view(&tmp));
+	j.dl = txt::view(&tmp).len;
+	bool ok = copy_tree(j, 0);
+	CInt fd = sys::c_open(zp(&j.src_dir), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	if (fd >= 0) { c_syncfs(fd); sys::c_close(fd); }
+	j.mutex.lock();
+	j.p.files_done = files_done;
+	j.p.bytes_done = bytes_done;
+	j.mutex.unlock();
+	j.unflushed = unflushed;
+	j.copied_nodes = nodes;
+	if (!ok || !rename_noreplace(zp(&tmp), zp(original))) { discard(j, zp(&tmp)); return false; }
+	discard(j, zp(placed));
+	return true;
+}
+
+<* Replaced targets are deleted only at the very end: an item left out after the commit gets its target back. *>
+fn void delete_asides(Job* j) @private
+{
+	for (int i = 0; i < j.count; i++)
+	{
+		Item* it = &j.items[i];
+		if (!it.aside || (it.plan == COPY && !it.committed)) continue;
+		char[4096] old;
+		temp_path(j, i, "old", &old);
+		discard(j, zp(&old));
+	}
 }
 
 fn void set_state(Job* j, State s, bool can_cancel = true) @private
@@ -1158,16 +1274,7 @@ fn State transfer(Job* j) @private
 			}
 		}
 	}
-	// Replaced targets are deleted only now that their replacements are in place.
-	for (int i = 0; i < j.count; i++)
-	{
-		Item* it = &j.items[i];
-		if (!it.aside || (it.plan == COPY && !it.committed)) continue;
-		char[4096] old;
-		temp_path(j, i, "old", &old);
-		discard(j, zp(&old));
-	}
-	if (!ok) return FAILED;
+	if (!ok) { close_drops(j); delete_asides(j); return FAILED; }
 	if (j.kind == MOVE)
 	{
 		// Cross-filesystem move: make the copies durable before deleting the sources (progress in removed / remove_total).
@@ -1178,6 +1285,7 @@ fn State transfer(Job* j) @private
 		{
 			Item* it = &j.items[i];
 			if (it.plan != COPY) continue;
+			if (it.st != CANCELLED && dropped(j, i)) { undo_placed(j, i); continue; }   // its source stays: the copy goes
 			if (!synced)
 			{
 				CInt fd = sys::c_open(zp(&j.dst_dir), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
@@ -1186,15 +1294,21 @@ fn State transfer(Job* j) @private
 			}
 			set_current(j, src_name(j, i));
 			set_path(&j.dp, &j.dl, src_dir, src_name(j, i));
-			if (!remove_tree(j, 0, false, false, true)) return FAILED; // copy is complete; the error says which source remains
+			if (!remove_tree(j, 0, false, false, true)) { close_drops(j); delete_asides(j); return FAILED; } // copy is complete; the error says which source remains
+			it.removed = true;
 		}
 	}
+	// Items left out after they were placed are undone now; the job ends only after this.
+	close_drops(j);
+	for (int i = 0; i < j.count; i++) if (j.items[i].st != CANCELLED && j.items[i].drop) undo_placed(j, i);
+	delete_asides(j);
 	return DONE;
 }
 
 <* Undo everything not yet committed (cancel / error before the commit). *>
 fn State rollback(Job* j) @private
 {
+	close_drops(j);
 	j.mutex.lock();
 	bool cancelled = j.cancel_req && !j.p.error[0];
 	j.p.state = FINISHING;
@@ -1603,7 +1717,7 @@ fn bool url_encode(String path, char[] out) @private
 }
 
 <* Move j.sp to the trash (freedesktop spec): reserve info/NAME.trashinfo exclusively, then rename. *>
-fn bool trash_one(Job* j, String trash, String name) @private => @pool()
+fn bool trash_one(Job* j, String trash, String name, Item* it) @private => @pool()
 {
 	char[12288] encoded;
 	if (!url_encode(txt::view(&j.sp), &encoded)) { *c_errno() = 0; return fail(j, "Path too long", name); }
@@ -1629,7 +1743,7 @@ fn bool trash_one(Job* j, String trash, String name) @private => @pool()
 		bool wrote = c_write(fd, info_text.ptr, info_text.len) == (sz)info_text.len;
 		if (sys::c_close(fd) != 0) wrote = false;
 		if (!wrote) { c_unlink(zp(&info)); return fail(j, "Cannot write to the trash", name); }
-		if (rename_noreplace(zp(&j.sp), zp(&dest))) return true;
+		if (rename_noreplace(zp(&j.sp), zp(&dest))) { txt::set(&it.dst, tname); return true; }
 		CInt e = *c_errno();
 		c_unlink(zp(&info));
 		if (e == EEXIST) continue;
@@ -1666,11 +1780,14 @@ fn State trash(Job* j) @private
 		set_path(&j.sp, &j.sl, src_dir, name);
 		if (dropped(j, i)) { drop_item(j, i); continue; }
 		item_state(j, i, ACTIVE);
-		if (trash_one(j, t, name)) { add_done(j, 1, 0); item_state(j, i, DONE); continue; }
+		if (trash_one(j, t, name, &j.items[i])) { add_done(j, 1, 0); item_state(j, i, DONE); continue; }
 		if (j.p.error[0]) return FAILED;
 		if (*c_errno() == EXDEV && j.permanent_fallback)
 		{
 			set_path(&j.dp, &j.dl, src_dir, name);
+			j.mutex.lock();
+			j.items[i].gone = true;   // no way back: cancel_item refuses it from now on
+			j.mutex.unlock();
 			if (!remove_tree(j, 0, false, true)) return stopped(j) && !j.p.error[0] ? CANCELLED : FAILED;
 			add_done(j, 1, 0);
 			item_state(j, i, DONE);
@@ -1678,6 +1795,24 @@ fn State trash(Job* j) @private
 		}
 		fail(j, *c_errno() == EXDEV ? "Not on the trash's drive" : "Cannot move to the trash", name);
 		return FAILED;
+	}
+	// Items left out after they went to the trash: put back where they were.
+	close_drops(j);
+	for (int i = 0; i < j.count; i++)
+	{
+		Item* it = &j.items[i];
+		if (it.st != DONE || !it.drop || it.gone) continue;
+		char[4096] from, info, back;
+		usz n;
+		set_path(&back, &&(usz){}, src_dir, src_name(j, i));
+		if (!set_path(&from, &n, t, "files") || !push(&from, &n, txt::view(&it.dst))) continue;
+		if (!rename_noreplace(zp(&from), zp(&back))) { fail(j, "Could not put back", src_name(j, i)); continue; }
+		if (set_path(&info, &n, t, "info") && push(&info, &n, txt::view(&it.dst)) && n + 11 < info.len)
+		{
+			txt::append(&info, ".trashinfo");
+			c_unlink(zp(&info));
+		}
+		forget(j, i);
 	}
 	return DONE;
 }

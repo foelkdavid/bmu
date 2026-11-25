@@ -325,6 +325,38 @@ fn void check_fileop() => @pool()
 	}
 	else { expect(false, "fileop: mid-copy drop start"); }
 
+	// cancel_item after the commit: a cross-drive MOVE whose first item's original is already deleted moves it
+	// back across, while the second item's originals are still being removed. Needs /dev/shm on another mount.
+	libc::Stat tst, sst;
+	if (lstat(at("").zstr_tcopy(), &tst) == 0 && lstat("/dev/shm", &sst) == 0 && tst.st_dev != sst.st_dev)
+	{
+		char[64] other;
+		txt::set(&other, "/dev/shm/bmu-fileop-XXXXXX");
+		if (mkdtemp(&other))
+		{
+			sys::mkdirs(at("back/many"));
+			put("back/first", "first!");
+			for (int k = 0; k < 4000; k++) put(string::tformat("back/many/f%d", k), "x");
+			bool asked;
+			if (job.start(MOVE, at("back"), { "first", "many" }, txt::view(&other)))
+			{
+				for (int spins = 0; spins < 400000 && !asked; spins++)
+				{
+					job.status(&p);
+					if (p.state == DONE || p.state == FAILED) break;
+					if (p.state == FINISHING && p.removed >= 1) asked = job.cancel_item(0);
+					sys::c_usleep(20);
+				}
+				while (!job.finished(&p)) sys::c_usleep(500);
+			}
+			expect(asked, "fileop: cancel_item accepted while originals are removed");
+			expect(p.state == DONE && p.dropped == 1 && get("back/first") == "first!", "fileop: placed item moved back across drives");
+			expect(!sys::exists(txt::join(txt::view(&other), "first")) && sys::exists(txt::join(txt::view(&other), "many/f3999")) && !there("back/many"), "fileop: the rest moved, no leftover copy");
+			expect(no_temporaries("back"), "fileop: no temporaries after moving back");
+			if (job.start(DELETE, "/dev/shm", { txt::basename(txt::view(&other)) })) { while (!job.finished(&p)) sys::c_usleep(500); }
+		}
+	}
+
 	expect(!job.start(COPY, "relative", { "x" }, "/tmp"), "fileop: refuse relative source");
 	expect(!job.start(COPY, "/tmp", { "a/b" }, "/tmp"), "fileop: refuse names with slash");
 	expect(!job.busy(), "fileop: idle after refusals");
