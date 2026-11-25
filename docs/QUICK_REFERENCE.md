@@ -80,7 +80,7 @@ fn void main(String[] args)
 | `app_args(args)` | `--shot FILE` (PNG after `--frames N`=3, then exit), `--scale S` |
 | `running()` / `quit = true` | loop condition / leave the loop |
 | `shortcut_table(area, rows, scroll) -> scroll`, `Shortcut{keys, action, heading}` | help list for settings dialogs |
-| `about_reset(app, version)`, `about_add(k, v)`, `about_draw(area)` | About panel (backend, GPU, versions, paths) |
+| `about_reset(app, version)`, `about_add(k, v)`, `about_draw(area)` | About panel (app + bmu version, backend, GPU, paths) |
 | `clipboard_set_data(mimes, datas) -> bool` | clipboard in other formats (image/png, text/uri-list…) |
 | `backend()`, `glfw_version()`, `gpu()`, `gl_version()` | runtime facts for an About page ("Wayland", GL renderer/version) |
 | `hold_close`, `close_requested` | close button asks the app instead of quitting (confirm while busy) |

@@ -49,8 +49,11 @@ fn float shortcut_table(Rect area, Shortcut[] rows, float scroll)
 	return scroll;
 }
 
+<* bmu library version (= bmu project.json "version"; bmu-check verifies they match). *>
+const String VERSION = "0.1.25";
+
 // About panel: standard rows + the app's own. Collect when the panel opens (cheap, but not per frame).
-const int ABOUT_MAX = 16;
+const int ABOUT_MAX = 20;
 char[40][ABOUT_MAX] about_keys;
 char[512][ABOUT_MAX] about_values;
 int about_count;
@@ -65,11 +68,12 @@ fn void about_add(String key, String value)
 
 extern fn sz about_readlink(ZString path, char* buf, usz size) @cname("readlink") @private @feat(LINUX);
 
-<* Start the About rows: version, display backend, GLFW, raylib, GPU, OpenGL, monitor, UI scale, binary. *>
+<* Start the About rows: version, bmu version, display backend, GLFW, raylib, GPU, OpenGL, monitor, UI scale, binary. *>
 fn void about_reset(String app, String version) => @pool()
 {
 	about_count = 0;
 	about_add("Version", string::tformat("%s %s", app, version));
+	about_add("bmu", VERSION);
 	about_add("Display", string::tformat("%s (native)", backend()));
 	about_add("GLFW", glfw_version());
 	about_add("raylib", "6.0 (static, bundled with bmu)");
