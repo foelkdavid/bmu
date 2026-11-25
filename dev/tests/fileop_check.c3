@@ -248,6 +248,9 @@ fn void check_fileop() => @pool()
 		expect(busy.has_dir(at("busy/src")) && h.found && h.own && h.kind == COPY && h.item == 1 && h.job == job.id(), "fileop: busy finds a running item");
 		expect(!busy.find(at("busy/src"), "three").found && !busy.find(at("busy"), "two").found, "fileop: busy misses others");
 		expect(!busy.has_dir("/nowhere") && !there("run/bmu-fileop/999999999-1"), "fileop: busy drops records of dead processes");
+		expect(job.cancel_item(1), "fileop: busy cancel_item");
+		busy.poll();
+		expect(!busy.find(at("busy/src"), "two").found && busy.find(at("busy/src"), "one").found, "fileop: a left-out item leaves the record at once");
 		job.answer(SKIP, true);
 		while (!job.finished(&p)) sys::c_usleep(500);
 		busy.poll();

@@ -29,13 +29,14 @@ fn bool registry_dir(char[] out) => @pool()
 fn bool publishes(Kind k) @private => k == COPY || k == MOVE || k == TRASH || k == DELETE || k == RESTORE;
 
 <* Write a record (temporary name, then renamed into place: readers never see half a record). *>
-fn bool write_record(ulong id, Kind kind, bool queued, String src_dir, String[] names, char[] out) @private => @pool()
+fn bool write_record(ulong id, Kind kind, bool queued, String src_dir, String[] names, char[] out, bool ui_thread = false) @private => @pool()
 {
 	char[4096] dir;
 	if (!registry_dir(&dir)) return false;
 	int pid = c_getpid();
 	String final = txt::join(txt::view(&dir), string::tformat("%d-%x", pid, id));
-	String tmp = txt::join(txt::view(&dir), string::tformat(".%d-%x.tmp", pid, id));
+	// The UI thread (cancel_item) and the worker may rewrite the same record: separate temporary names.
+	String tmp = txt::join(txt::view(&dir), string::tformat(".%d-%x%s.tmp", pid, id, ui_thread ? "-ui" : ""));
 	DString body;
 	body.tinit();
 	body.appendf("bmu-fileop2\0%d\0%d\0%d\0%s\0", (int)kind, pid, queued ? 1 : 0, src_dir);
@@ -49,14 +50,29 @@ fn bool write_record(ulong id, Kind kind, bool queued, String src_dir, String[] 
 	return true;
 }
 
-<* Worker: (re)write this job's record with the items still in it (left-out ones are dropped from it). *>
+<* Worker: (re)write this job's record with the items still in it (left out or asked to be: not listed). *>
 fn void announce(Job* j) @private => @pool()
 {
 	if (helper_mode || !publishes(j.kind) || !j.count) { j.record[0] = 0; return; }
+	if (!write_record(j.id(), j.kind, false, txt::view(&j.src_dir), kept_names(j), &j.record)) j.record[0] = 0;
+}
+
+<* UI thread, cancel_item: the item leaves the record at once (other processes unmark it now, not after its undo). *>
+fn void reannounce(Job* j) @private => @pool()
+{
+	if (helper_mode || !publishes(j.kind) || !j.record[0]) return;
+	char[4096] ignored;
+	write_record(j.id(), j.kind, false, txt::view(&j.src_dir), kept_names(j), &ignored, true);
+}
+
+fn String[] kept_names(Job* j) @private
+{
 	String[] names = mem::talloc_array(String, (usz)j.count);
 	int n;
-	for (int i = 0; i < j.count; i++) if (j.items[i].st != CANCELLED) names[n++] = src_name(j, i);
-	if (!write_record(j.id(), j.kind, false, txt::view(&j.src_dir), names[:n], &j.record)) j.record[0] = 0;
+	j.mutex.lock();
+	for (int i = 0; i < j.count; i++) if (!j.items[i].drop && j.items[i].st != CANCELLED) names[n++] = src_name(j, i);
+	j.mutex.unlock();
+	return names[:n];
 }
 
 <*

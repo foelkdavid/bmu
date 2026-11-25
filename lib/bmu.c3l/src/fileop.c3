@@ -379,6 +379,13 @@ fn ItemProgress progress_of(Job* j, int i) @private
 *>
 fn bool Job.cancel_item(&self, int i)
 {
+	if (!drop_request(self, i)) return false;
+	reannounce(self);   // other processes stop marking it now
+	return true;
+}
+
+fn bool drop_request(Job* self, int i) @private
+{
 	if (i < 0 || i >= self.item_count()) return false;
 	self.mutex.lock();
 	defer self.mutex.unlock();
