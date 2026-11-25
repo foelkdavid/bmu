@@ -1,0 +1,264 @@
+# Drag source (bmuStartDrag), clipboard reads in any MIME type (bmuGetClipboardData), the copy/move intent of a
+# drop from another bmu app (bmuDropAction, carried as application/x-bmu-drag-action), own drops served from
+# memory, file-only selections kept. Named 'z…' so it applies after the other glfw-wayland patches. Applied by
+# build-raylib.sh.
+diff --git a/src/external/glfw/src/wl_platform.h b/src/external/glfw/src/wl_platform.h
+index 149cd24..74921a2 100644
+--- a/src/external/glfw/src/wl_platform.h
++++ b/src/external/glfw/src/wl_platform.h
+@@ -337,6 +337,7 @@ typedef struct _GLFWofferWayland
+     struct wl_data_offer*       offer;
+     GLFWbool                    text_plain_utf8;
+     GLFWbool                    text_uri_list;
++    GLFWbool                    bmu_drag_action;   // bmu patch: offers application/x-bmu-drag-action
+ } _GLFWofferWayland;
+ 
+ typedef struct _GLFWscaleWayland
+diff --git a/src/external/glfw/src/wl_window.c b/src/external/glfw/src/wl_window.c
+index 2afc8de..285ffa3 100644
+--- a/src/external/glfw/src/wl_window.c
++++ b/src/external/glfw/src/wl_window.c
+@@ -46,6 +46,13 @@
+ #include <linux/input-event-codes.h>
+ 
+ #include "wayland-client-protocol.h"
++
++// bmu patch: drag source, clipboard reads in any format, and the drop's copy/move intent (see the end of the file).
++static unsigned int bmuButtonSerial;
++static struct wl_data_source* bmuDragSource;
++static GLFWbool bmuDragOfferHasAction;
++static char bmuDropActionText[16];
++static void bmuDropOwn(_GLFWwindow* window);
+ #include "xdg-shell-client-protocol.h"
+ #include "xdg-decoration-unstable-v1-client-protocol.h"
+ #include "viewporter-client-protocol.h"
+@@ -1541,6 +1548,9 @@ static void pointerHandleButton(void* userData,
+     if (!window)
+         return;
+ 
++    if (window->wl.hovered && state == WL_POINTER_BUTTON_STATE_PRESSED)
++        bmuButtonSerial = serial;   // bmu patch: a drag must start with the serial of the press that began it
++
+     if (window->wl.hovered)
+     {
+         _glfw.wl.serial = serial;
+@@ -1931,6 +1941,8 @@ static void dataOfferHandleOffer(void* userData,
+                 _glfw.wl.offers[i].text_plain_utf8 = GLFW_TRUE;
+             else if (strcmp(mimeType, "text/uri-list") == 0)
+                 _glfw.wl.offers[i].text_uri_list = GLFW_TRUE;
++            else if (strcmp(mimeType, "application/x-bmu-drag-action") == 0)
++                _glfw.wl.offers[i].bmu_drag_action = GLFW_TRUE;
+ 
+             break;
+         }
+@@ -1994,6 +2006,7 @@ static void dataDeviceHandleEnter(void* userData,
+                 _glfw.wl.dragOffer = offer;
+                 _glfw.wl.dragFocus = window;
+                 _glfw.wl.dragSerial = serial;
++                bmuDragOfferHasAction = _glfw.wl.offers[i].bmu_drag_action;
+             }
+ 
+             _glfw.wl.offers[i] = _glfw.wl.offers[_glfw.wl.offerCount - 1];
+@@ -2047,6 +2060,23 @@ static void dataDeviceHandleDrop(void* userData,
+     if (!_glfw.wl.dragOffer)
+         return;
+ 
++    // bmu patch: our own drag dropped on our own window: reading the offer would wait on ourselves
++    if (bmuDragSource)
++    {
++        bmuDropOwn(_glfw.wl.dragFocus);
++        return;
++    }
++    bmuDropActionText[0] = 0;
++    if (bmuDragOfferHasAction)
++    {
++        char* action = readDataOfferAsString(_glfw.wl.dragOffer, "application/x-bmu-drag-action");
++        if (action)
++        {
++            snprintf(bmuDropActionText, sizeof(bmuDropActionText), "%s", action);
++            _glfw_free(action);
++        }
++    }
++
+     char* string = readDataOfferAsString(_glfw.wl.dragOffer, "text/uri-list");
+     if (string)
+     {
+@@ -2078,7 +2108,8 @@ static void dataDeviceHandleSelection(void* userData,
+     {
+         if (_glfw.wl.offers[i].offer == offer)
+         {
+-            if (_glfw.wl.offers[i].text_plain_utf8)
++            // bmu patch: also keep selections without text (files copied in a file manager)
++            if (_glfw.wl.offers[i].text_plain_utf8 || _glfw.wl.offers[i].text_uri_list)
+                 _glfw.wl.selectionOffer = offer;
+             else
+                 wl_data_offer_destroy(offer);
+@@ -3434,3 +3465,168 @@ GLFWAPI struct wl_surface* glfwGetWaylandWindow(GLFWwindow* handle)
+ 
+ #endif // _GLFW_WAYLAND
+ 
++
++
++// ------------------------------------------------------------------------------------------------ bmu patch
++// Drag source (bmuStartDrag), clipboard reads in any MIME type (bmuGetClipboardData), the copy/move intent of
++// a drop from another bmu app (bmuDropAction). The data device stays at version 1 (no action negotiation): the
++// intent travels as application/x-bmu-drag-action ("copy" / "move") next to the dragged data.
++
++static char* bmuDragMime[BMU_CLIP_MAX];
++static unsigned char* bmuDragData[BMU_CLIP_MAX];
++static size_t bmuDragSize[BMU_CLIP_MAX];
++static int bmuDragCount;
++
++static void bmuDragClear(void)
++{
++    for (int i = 0; i < bmuDragCount; i++)
++    {
++        _glfw_free(bmuDragMime[i]);
++        _glfw_free(bmuDragData[i]);
++    }
++    bmuDragCount = 0;
++}
++
++static int bmuDragFind(const char* mime)
++{
++    for (int i = 0; i < bmuDragCount; i++)
++        if (strcmp(mime, bmuDragMime[i]) == 0) return i;
++    return -1;
++}
++
++static void bmuDragHandleTarget(void* userData, struct wl_data_source* source, const char* mimeType) {}
++
++static void bmuDragHandleSend(void* userData, struct wl_data_source* source, const char* mimeType, int fd)
++{
++    const int i = bmuDragFind(mimeType);
++    if (source != bmuDragSource || i < 0) { close(fd); return; }
++    BmuClipWrite* w = _glfw_calloc(1, sizeof(BmuClipWrite));
++    unsigned char* copy = _glfw_calloc(1, bmuDragSize[i] ? bmuDragSize[i] : 1);
++    if (!w || !copy) { _glfw_free(w); _glfw_free(copy); close(fd); return; }
++    memcpy(copy, bmuDragData[i], bmuDragSize[i]);
++    *w = (BmuClipWrite) { fd, copy, bmuDragSize[i] };
++    pthread_t thread;
++    pthread_attr_t attr;
++    pthread_attr_init(&attr);
++    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
++    if (pthread_create(&thread, &attr, bmuClipWriter, w) != 0) bmuClipWriter(w);
++    pthread_attr_destroy(&attr);
++}
++
++// Version 1 sources are cancelled when the drag ends (dropped somewhere or given up).
++static void bmuDragHandleCancelled(void* userData, struct wl_data_source* source)
++{
++    if (source == bmuDragSource) bmuDragSource = NULL;
++    wl_data_source_destroy(source);
++}
++
++static const struct wl_data_source_listener bmuDragSourceListener =
++{
++    bmuDragHandleTarget,
++    bmuDragHandleSend,
++    bmuDragHandleCancelled,
++};
++
++// Start a drag of `count` formats (copied) from the window under the pointer, while a mouse button is held.
++// The compositor owns the pointer until the drop, so the held buttons are reported as released now.
++// Returns 1 when the drag started.
++int bmuStartDrag(int count, const char* const* mimes, const void* const* datas, const size_t* sizes)
++{
++    _GLFWwindow* window = _glfw.wl.pointerFocus;
++    if (!window || count <= 0 || count > BMU_CLIP_MAX || !_glfw.wl.dataDeviceManager || !_glfw.wl.dataDevice)
++        return 0;
++    if (bmuDragSource)
++    {
++        wl_data_source_destroy(bmuDragSource);
++        bmuDragSource = NULL;
++    }
++    bmuDragClear();
++    for (int i = 0; i < count; i++)
++    {
++        bmuDragMime[i] = _glfw_strdup(mimes[i]);
++        bmuDragData[i] = _glfw_calloc(1, sizes[i] + 1);
++        bmuDragCount = i + 1;
++        if (!bmuDragMime[i] || !bmuDragData[i]) { bmuDragClear(); return 0; }
++        memcpy(bmuDragData[i], datas[i], sizes[i]);
++        bmuDragSize[i] = sizes[i];
++    }
++    bmuDragSource = wl_data_device_manager_create_data_source(_glfw.wl.dataDeviceManager);
++    if (!bmuDragSource) return 0;
++    wl_data_source_add_listener(bmuDragSource, &bmuDragSourceListener, NULL);
++    for (int i = 0; i < bmuDragCount; i++)
++        wl_data_source_offer(bmuDragSource, bmuDragMime[i]);
++    wl_data_device_start_drag(_glfw.wl.dataDevice, bmuDragSource, window->wl.surface, NULL, bmuButtonSerial);
++    for (int b = 0; b <= GLFW_MOUSE_BUTTON_LAST; b++)
++        if (window->mouseButtons[b] == GLFW_PRESS)
++            _glfwInputMouseClick(window, b, GLFW_RELEASE, 0);
++    flushDisplay();
++    return 1;
++}
++
++// 1 while a drag started by bmuStartDrag is in progress.
++int bmuDragActive(void)
++{
++    return bmuDragSource != NULL;
++}
++
++// The copy/move intent of the last drop: "copy", "move", or "" (from an app that doesn't say).
++const char* bmuDropAction(void)
++{
++    return bmuDropActionText;
++}
++
++// Our drag dropped on one of our windows: deliver our own uri-list as a drop.
++static void bmuDropOwn(_GLFWwindow* window)
++{
++    const int a = bmuDragFind("application/x-bmu-drag-action");
++    snprintf(bmuDropActionText, sizeof(bmuDropActionText), "%s", a >= 0 ? (const char*) bmuDragData[a] : "");
++    const int u = bmuDragFind("text/uri-list");
++    if (u < 0 || !window) return;
++    char* string = _glfw_strdup((const char*) bmuDragData[u]);   // _glfwParseUriList modifies its input
++    if (!string) return;
++    int count;
++    char** paths = _glfwParseUriList(string, &count);
++    if (paths)
++        _glfwInputDrop(window, count, (const char**) paths);
++    for (int i = 0; i < count; i++)
++        _glfw_free(paths[i]);
++    _glfw_free(paths);
++    _glfw_free(string);
++}
++
++// The clipboard's data in `mime` (malloc'ed, zero-terminated, `*size` bytes; free with bmuFree), or NULL.
++// Reading another app's clipboard waits until it has sent everything.
++void* bmuGetClipboardData(const char* mime, size_t* size)
++{
++    *size = 0;
++    if (_glfw.wl.selectionSource)
++    {
++        // our own clipboard: answer from memory (reading the offer would wait on ourselves)
++        for (int i = 0; i < bmuClipCount; i++)
++        {
++            if (strcmp(mime, bmuClipMime[i]) != 0) continue;
++            unsigned char* copy = _glfw_calloc(1, bmuClipSize[i] + 1);
++            if (!copy) return NULL;
++            memcpy(copy, bmuClipData[i], bmuClipSize[i]);
++            *size = bmuClipSize[i];
++            return copy;
++        }
++        if (_glfw.wl.clipboardString && strcmp(mime, "text/plain;charset=utf-8") == 0)
++        {
++            *size = strlen(_glfw.wl.clipboardString);
++            return _glfw_strdup(_glfw.wl.clipboardString);
++        }
++        return NULL;
++    }
++    if (!_glfw.wl.selectionOffer)
++        return NULL;
++    char* data = readDataOfferAsString(_glfw.wl.selectionOffer, mime);
++    if (data)
++        *size = strlen(data);
++    return data;
++}
++
++void bmuFree(void* p)
++{
++    _glfw_free(p);
++}

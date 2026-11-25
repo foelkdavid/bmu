@@ -81,7 +81,8 @@ fn void main(String[] args)
 | `running()` / `quit = true` | loop condition / leave the loop |
 | `shortcut_table(area, rows, scroll) -> scroll`, `Shortcut{keys, action, heading}` | help list for settings dialogs |
 | `about_reset(app, version)`, `about_add(k, v)`, `about_draw(area)` | About panel (app + bmu version, backend, GPU, paths) |
-| `clipboard_set_data(mimes, datas) -> bool` | clipboard in other formats (image/png, text/uri-list…) |
+| `clipboard_set_data(mimes, datas) -> bool`, `clipboard_get_data(mime) -> String` | clipboard in other formats (image/png, text/uri-list, x-special/gnome-copied-files…); get = temp, "" when absent |
+| `drag_start(mimes, datas) -> bool`, `dragging_out()`, `drop_action()` | drag data to other windows/apps (files: text/uri-list + application/x-bmu-drag-action move/copy); intent of the last drop |
 | `backend()`, `glfw_version()`, `gpu()`, `gl_version()` | runtime facts for an About page ("Wayland", GL renderer/version) |
 | `hold_close`, `close_requested` | close button asks the app instead of quitting (confirm while busy) |
 | `frame_begin(modal=false)` / `frame_end()` | start (input, zoom keys, clear, 2D zoom) / finish (popup, tooltip, toast, present) |
@@ -142,6 +143,7 @@ fn void main(String[] args)
 | `view(&b) -> String`, `set(&b, s)`, `append(&b, s)`, `empty(&b)`, `z(&b) -> ZString` | read / write (truncates) / append / is empty / C string |
 | `ieq`, `icontains`, `istarts_with`, `iends_with`, `icmp`, `natcmp`, `lower(c)` | case-insensitive tests, sort orders ("v9" < "v10") |
 | `basename`, `dirname`, `strip_ext`, `join(a, b)` (temp), `zjoin` (temp) | path helpers |
+| `file_uri(path)`, `uri_path(uri)` | path ↔ `file://` URI, percent-encoded (temp) |
 | `pretty_name(&out, raw)`, `slug(&out, name, fallback="item")` | "Some_Name.exe"→"Some Name"; "Some Name!"→"some-name" |
 | **sys** (`sys::`) — Linux | |
 | `exists`, `is_dir`, `is_file`, `is_exec`, `mkdirs`, `move`, `realpath(&out, p)` | file system |

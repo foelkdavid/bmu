@@ -68,6 +68,14 @@ fn void check_txt() => @pool()
 	expect_str(txt::dirname("rel"), ".", "dirname relative");
 	expect_str(txt::strip_ext("x.tar.gz"), "x.tar", "strip_ext");
 	expect_str(txt::strip_ext(".hidden"), ".hidden", "strip_ext dotfile");
+	@pool()
+	{
+		expect_str(txt::file_uri("/home/a b/ä#1.txt"), "file:///home/a%20b/%C3%A4%231.txt", "file_uri encodes");
+		expect_str(txt::uri_path("file:///home/a%20b/%C3%A4%231.txt\r"), "/home/a b/ä#1.txt", "uri_path decodes");
+		expect_str(txt::uri_path("file://localhost/tmp/x"), "/tmp/x", "uri_path localhost");
+		expect_str(txt::uri_path("https://example.com/x"), "", "uri_path not a file");
+		expect_str(txt::uri_path(txt::file_uri("/x/100%/y")), "/x/100%/y", "uri round trip with %");
+	};
 	expect_str(txt::join("/a/", "b"), "/a/b", "join slash");
 	expect_str(txt::join("/a", "b"), "/a/b", "join");
 

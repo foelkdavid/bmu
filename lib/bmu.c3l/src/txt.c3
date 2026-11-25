@@ -88,6 +88,58 @@ fn String dirname(String p)
 	return p[:(usz)i];
 }
 
+<* "file:///path" for a local path, percent-encoded (temp). For text/uri-list (lines end in "\r\n"). *>
+fn String file_uri(String path)
+{
+	DString d;
+	d.tinit();
+	d.append("file://");
+	foreach (c : path)
+	{
+		bool plain = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '/' || c == '-' || c == '_' || c == '.' || c == '~';
+		if (plain) { d.append_char(c); }
+		else { d.appendf("%%%02X", c); }
+	}
+	return d.str_view();
+}
+
+<* The local path of a "file://" URI (percent-decoded, temp; "" when it is not a local file URI). Accepts
+   "file:///p", "file://localhost/p" and a trailing "\r". *>
+fn String uri_path(String uri)
+{
+	if (uri.len && uri[^1] == '\r') uri = uri[:uri.len - 1];
+	if (!uri.starts_with("file://")) return "";
+	String rest = uri[7..];
+	if (!rest.starts_with("/"))
+	{
+		sz? s = rest.index_of_char('/');
+		if (catch s) return "";
+		rest = rest[(usz)s..];   // drop the host (localhost)
+	}
+	DString d;
+	d.tinit();
+	for (usz i = 0; i < rest.len; i++)
+	{
+		char c = rest[i];
+		if (c == '%' && i + 2 < rest.len)
+		{
+			int hi = hex(rest[i + 1]);
+			int lo = hex(rest[i + 2]);
+			if (hi >= 0 && lo >= 0) { d.append_char((char)(hi * 16 + lo)); i += 2; continue; }
+		}
+		d.append_char(c);
+	}
+	return d.str_view();
+}
+
+fn int hex(char c) @private
+{
+	if (c >= '0' && c <= '9') return c - '0';
+	if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+	if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+	return -1;
+}
+
 fn String strip_ext(String name)
 {
 	sz? i = name.rindex_of_char('.');

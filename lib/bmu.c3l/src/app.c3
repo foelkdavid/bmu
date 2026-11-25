@@ -228,6 +228,64 @@ fn String gpu() => gl_string(0x1F01);
 fn String gl_version() => gl_string(0x1F02);
 
 extern fn CInt bmu_set_clipboard_data(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuSetClipboardData") @private @feat(LINUX);
+extern fn void* bmu_get_clipboard_data(ZString mime, usz* size) @cname("bmuGetClipboardData") @private @feat(LINUX);
+extern fn void bmu_free(void* p) @cname("bmuFree") @private @feat(LINUX);
+extern fn CInt bmu_start_drag(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuStartDrag") @private @feat(LINUX);
+extern fn CInt bmu_drag_active() @cname("bmuDragActive") @private @feat(LINUX);
+extern fn ZString bmu_drop_action() @cname("bmuDropAction") @private @feat(LINUX);
+
+const usz CLIPBOARD_MAX = 16 * 1024 * 1024;   // clipboard_get_data reads at most this much
+
+<*
+ The clipboard's content in `mime` (e.g. "text/uri-list", "x-special/gnome-copied-files") as temp memory, ""
+ when it has none in that format. Another app's clipboard is read synchronously (it answers within ms; a frozen
+ owner blocks the UI). At most CLIPBOARD_MAX bytes. Call on the UI thread, from a user action.
+*>
+fn String clipboard_get_data(String mime) @feat(!LINUX) => "";
+
+fn String clipboard_get_data(String mime) @feat(LINUX)
+{
+	usz n;
+	void* p;
+	@pool() { p = bmu_get_clipboard_data(mime.zstr_tcopy(), &n); };
+	if (!p) return "";
+	defer bmu_free(p);
+	if (n > CLIPBOARD_MAX) n = CLIPBOARD_MAX;
+	return ((String)((char*)p)[:n]).tcopy();
+}
+
+<*
+ Start dragging data out of the window (to another window of this or another app), e.g. files as
+ { "text/uri-list", "application/x-bmu-drag-action" } with "file:///a\r\n…" and "move" / "copy". Call while a
+ mouse button is held (typically when the pointer leaves the window during your own drag). Up to 4 formats,
+ copied. The compositor owns the pointer until the drop; the held button is reported as released now, so end
+ your own drag state. A drop on one of this app's windows arrives like any file drop (rl::is_file_dropped).
+*>
+fn bool drag_start(String[] mimes, char[][] datas) @feat(!LINUX) => false;
+
+fn bool drag_start(String[] mimes, char[][] datas) @feat(LINUX) => @pool()
+{
+	if (!mimes.len || mimes.len != datas.len || mimes.len > 4) return false;
+	ZString[4] m;
+	void*[4] d;
+	usz[4] n;
+	foreach (i, mime : mimes)
+	{
+		m[i] = mime.zstr_tcopy();
+		d[i] = datas[i].ptr;
+		n[i] = datas[i].len;
+	}
+	return bmu_start_drag((CInt)mimes.len, &m, &d, &n) == 1;
+}
+
+<* True while a drag_start() drag is in progress. *>
+fn bool dragging_out() @feat(!LINUX) => false;
+fn bool dragging_out() @feat(LINUX) => bmu_drag_active() == 1;
+
+<* The intent of the last file drop: "move" or "copy" from a bmu app's drag_start (application/x-bmu-drag-action),
+   "" from other apps. Read it when rl::is_file_dropped() is true. *>
+fn String drop_action() @feat(!LINUX) => "";
+fn String drop_action() @feat(LINUX) => bmu_drop_action().str_view();
 
 <*
  Put data in other formats on the clipboard, e.g. { "image/png", "text/uri-list" } with the PNG bytes and

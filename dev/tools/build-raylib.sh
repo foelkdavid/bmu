@@ -10,7 +10,8 @@ trap 'rm -rf "$work"' EXIT
 git clone -q --depth 1 --branch 6.0 https://github.com/raysan5/raylib "$work/raylib"
 [ "$(git -C "$work/raylib" rev-parse HEAD)" = "$REV" ] || { echo "raylib 6.0 tag moved"; exit 1; }
 # Patches (each documented in its file): drop position, no joystick scan, sleep-only frame pacing,
-# libdecor only without server-side decorations, Wayland app_id hint, key names without a keyboard.
+# libdecor only without server-side decorations, Wayland app_id hint, key names without a keyboard, drag source +
+# clipboard reads (the "z" patch applies last).
 for p in dev/tools/glfw-*.patch dev/tools/raylib-*.patch; do git -C "$work/raylib" apply "$PWD/$p"; done
 make -s -C "$work/raylib/src" -j"$(nproc)" PLATFORM=PLATFORM_DESKTOP_GLFW RAYLIB_LIBTYPE=STATIC RAYLIB_BUILD_MODE=RELEASE \
     GLFW_LINUX_ENABLE_WAYLAND=TRUE GLFW_LINUX_ENABLE_X11=FALSE \

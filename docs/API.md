@@ -76,6 +76,10 @@ fn void main(String[] args)
 | `Color clear_color = BG` | Background colour. |
 | `fn void fit_window(bool resize)` | Re-apply the min size for the current scale; `resize` also resets the window size (base size × scale, clamped). Don't `resize` a mapped window on Wayland (it leaves its tile) or one about to map (see `open`). |
 | `fn void close()` | Unload the font, close the window. |
+| `fn String clipboard_get_data(String mime)` | The clipboard's content in that MIME type (temp, "" when absent), e.g. `text/uri-list` or `x-special/gnome-copied-files` (files copied in a file manager: first line `copy`/`cut`, then URIs). Reads another app's clipboard synchronously; ≤ `CLIPBOARD_MAX` (16 MiB). UI thread, user action. Own clipboard answered from memory. |
+| `fn bool drag_start(String[] mimes, char[][] datas)` | Drag data out of the window to other windows/apps (≤4 formats, copied), e.g. files: `text/uri-list` + `application/x-bmu-drag-action` (`move`/`copy`). Call while a mouse button is held (e.g. when your own drag leaves the window); the held button is reported released, the compositor owns the pointer until the drop. Drops on this app's windows arrive as normal file drops. |
+| `fn bool dragging_out()` | True while a `drag_start` drag runs. |
+| `fn String drop_action()` | Intent of the last file drop: `move`/`copy` (from a bmu app's `drag_start`) or "" (other apps). Read when `rl::is_file_dropped()`. |
 | `fn bool clipboard_set_data(String[] mimes, char[][] datas)` | Clipboard in other formats (≤4), e.g. `image/png` bytes + `text/uri-list` (`file:///path\r\n`) so pasting gives the image or the file. Bytes are copied; pastes are served on a short-lived thread while the app runs. From a user action, UI thread. Text: `rl::set_clipboard_text` (replaces it). bmu's GLFW patch `glfw-wayland-clipboard-data.patch`. |
 | `fn String backend()`, `glfw_version()`, `gpu()`, `gl_version()` | Runtime facts for an About page or bug report: windowing backend ("Wayland"), GLFW version string, GPU/driver (GL_RENDERER), OpenGL version. After `open()`, UI thread; cheap, but call on demand, not per frame. |
 

@@ -358,6 +358,47 @@ fn void handle_drop()
 }
 ```
 
+## Files to other windows: clipboard and drag
+
+Copy files so other file managers (and other windows of your app) can paste them, paste theirs, and drag files
+out of the window. `drag_start` is called when your own drag leaves the window; drops come back as file drops
+with `ui::drop_action()` telling a move from a copy.
+
+```c3
+fn String uri_list(String dir, String[] names)
+{
+	DString d;
+	d.tinit();
+	foreach (n : names) { d.append(txt::file_uri(txt::join(dir, n))); d.append("\r\n"); }
+	return d.str_view();
+}
+
+fn void copy_files(String dir, String[] names, bool cut) => @pool()
+{
+	String list = uri_list(dir, names);
+	String gnome = string::tformat("%s\n%s", cut ? "cut" : "copy", list.trim().treplace("\r\n", "\n"));
+	ui::clipboard_set_data({ "text/uri-list", "x-special/gnome-copied-files" }, { list, gnome });
+}
+
+fn void paste_files() => @pool()
+{
+	String g = ui::clipboard_get_data("x-special/gnome-copied-files");
+	bool cut = g.starts_with("cut\n");
+	String list = g.len ? g : ui::clipboard_get_data("text/uri-list");
+	foreach (line : list.tsplit("\n"))
+	{
+		String p = txt::uri_path(line.trim());
+		if (p.len) io::printfn("%s %s", cut ? "move" : "copy", p);
+	}
+}
+
+fn void drag_out(String dir, String[] names, bool copy) => @pool()
+{
+	// while your own drag is active and the pointer left the window (mouse button still held)
+	ui::drag_start({ "text/uri-list", "application/x-bmu-drag-action" }, { uri_list(dir, names), copy ? "copy" : "move" });
+}
+```
+
 ## Image tiles with a fallback
 
 Load textures once (not every frame); `ui::tile` draws the letter tile while there is none.
