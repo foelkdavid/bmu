@@ -76,7 +76,8 @@ fn void main(String[] args)
 | `Color clear_color = BG` | Background colour. |
 | `fn void fit_window(bool resize)` | Re-apply the min size for the current scale; `resize` also resets the window size (base size × scale, clamped). Don't `resize` a mapped window on Wayland (it leaves its tile) or one about to map (see `open`). |
 | `fn void close()` | Unload the font, close the window. |
-| `fn String clipboard_get_data(String mime)` | The clipboard's content in that MIME type (temp, "" when absent), e.g. `text/uri-list` or `x-special/gnome-copied-files` (files copied in a file manager: first line `copy`/`cut`, then URIs). Reads another app's clipboard synchronously; ≤ `CLIPBOARD_MAX` (16 MiB). UI thread, user action. Own clipboard answered from memory. |
+| `fn String clipboard_get_data(String mime)` | The clipboard's content in that MIME type (temp, "" when absent), e.g. `text/uri-list` or `x-special/gnome-copied-files` (files copied in a file manager: first line `copy`/`cut`, then URIs). Reads another app's clipboard synchronously; an owner silent for 0.5 s gives "" (bounded stall), formats it doesn't offer give "" without asking; ≤ `CLIPBOARD_MAX` (16 MiB). UI thread, user action (never on focus changes: see `clipboard_owned`). Own clipboard answered from memory. |
+| `fn bool clipboard_owned()` | True while the clipboard still holds this app's last `clipboard_set_data` (no other window/app copied since, no `rl::set_clipboard_text` replaced it). No IPC: fine per frame or on focus, e.g. to drop an internal "cut" mark. |
 | `fn bool drag_start(String[] mimes, char[][] datas)` | Drag data out of the window to other windows/apps (≤4 formats, copied), e.g. files: `text/uri-list` + `application/x-bmu-drag-action` (`move`/`copy`). Call while a mouse button is held (e.g. when your own drag leaves the window); the held button is reported released, the compositor owns the pointer until the drop. Drops on this app's windows arrive as normal file drops. |
 | `fn bool dragging_out()` | True while a `drag_start` drag runs. |
 | `fn String drop_action()` | Intent of the last file drop: `move`/`copy` (from a bmu app's `drag_start`) or "" (other apps). Read when `rl::is_file_dropped()`. |
@@ -484,6 +485,7 @@ File system, Trash, no saved places. Each change saves at once (atomic rename); 
 | image loader | 4095-byte paths; 32 MiB compressed file and 32,000,000 source pixels (both raisable per loader via `limits`); 16384 px source edge; 1600 px preview edge (`limits.max_edge`), optional fit box (`limits.fit_w`/`fit_h`); one pending request and one ready result per loader |
 | folder watch | one folder per `sys::DirWatch` (not its subfolders); 4 KiB read per drain step |
 | clip | one level (`begin_clip` doesn't nest) |
+| clipboard data | ≤4 formats per set/drag; reads ≤ `CLIPBOARD_MAX` (16 MiB), given up after 0.5 s without data |
 | layers | 0 and 1 for app use (more work too: any int, one is active); 98 = context menu, 99 = dropdown popup |
 
 ## Async images (`bmu::image`)

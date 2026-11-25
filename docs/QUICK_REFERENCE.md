@@ -81,7 +81,7 @@ fn void main(String[] args)
 | `running()` / `quit = true` | loop condition / leave the loop |
 | `shortcut_table(area, rows, scroll) -> scroll`, `Shortcut{keys, action, heading}` | help list for settings dialogs |
 | `about_reset(app, version)`, `about_add(k, v)`, `about_draw(area)` | About panel (app + bmu version, backend, GPU, paths) |
-| `clipboard_set_data(mimes, datas) -> bool`, `clipboard_get_data(mime) -> String` | clipboard in other formats (image/png, text/uri-list, x-special/gnome-copied-files…); get = temp, "" when absent |
+| `clipboard_set_data(mimes, datas) -> bool`, `clipboard_get_data(mime) -> String` | clipboard in other formats (image/png, text/uri-list, x-special/gnome-copied-files…); get = temp, "" when absent (0.5 s timeout); `clipboard_owned() -> bool` (no IPC) |
 | `drag_start(mimes, datas) -> bool`, `dragging_out()`, `drop_action()` | drag data to other windows/apps (files: text/uri-list + application/x-bmu-drag-action move/copy); intent of the last drop |
 | `backend()`, `glfw_version()`, `gpu()`, `gl_version()` | runtime facts for an About page ("Wayland", GL renderer/version) |
 | `hold_close`, `close_requested` | close button asks the app instead of quitting (confirm while busy) |

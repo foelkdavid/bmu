@@ -380,6 +380,9 @@ fn void copy_files(String dir, String[] names, bool cut) => @pool()
 	ui::clipboard_set_data({ "text/uri-list", "x-special/gnome-copied-files" }, { list, gnome });
 }
 
+// Still ours? (another window/app copied since) — cheap, ask this instead of reading the clipboard on focus.
+fn bool clip_is_ours() => ui::clipboard_owned();
+
 fn void paste_files() => @pool()
 {
 	String g = ui::clipboard_get_data("x-special/gnome-copied-files");

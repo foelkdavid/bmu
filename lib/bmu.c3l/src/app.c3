@@ -230,6 +230,7 @@ fn String gl_version() => gl_string(0x1F02);
 extern fn CInt bmu_set_clipboard_data(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuSetClipboardData") @private @feat(LINUX);
 extern fn void* bmu_get_clipboard_data(ZString mime, usz* size) @cname("bmuGetClipboardData") @private @feat(LINUX);
 extern fn void bmu_free(void* p) @cname("bmuFree") @private @feat(LINUX);
+extern fn CInt bmu_clipboard_owned() @cname("bmuClipboardOwned") @private @feat(LINUX);
 extern fn CInt bmu_start_drag(CInt count, ZString* mimes, void** datas, usz* sizes) @cname("bmuStartDrag") @private @feat(LINUX);
 extern fn CInt bmu_drag_active() @cname("bmuDragActive") @private @feat(LINUX);
 extern fn ZString bmu_drop_action() @cname("bmuDropAction") @private @feat(LINUX);
@@ -238,8 +239,10 @@ const usz CLIPBOARD_MAX = 16 * 1024 * 1024;   // clipboard_get_data reads at mos
 
 <*
  The clipboard's content in `mime` (e.g. "text/uri-list", "x-special/gnome-copied-files") as temp memory, ""
- when it has none in that format. Another app's clipboard is read synchronously (it answers within ms; a frozen
- owner blocks the UI). At most CLIPBOARD_MAX bytes. Call on the UI thread, from a user action.
+ when it has none in that format. Another app's clipboard is read synchronously (it answers within ms); an owner
+ that sends nothing for 0.5 s gives "" (the UI stalls at most that long per read), and formats the owner doesn't
+ offer give "" without asking it. At most CLIPBOARD_MAX bytes. Call on the UI thread, from a user action (not
+ on focus changes: use clipboard_owned() to notice that another client copied something).
 *>
 fn String clipboard_get_data(String mime) @feat(!LINUX) => "";
 
@@ -277,6 +280,13 @@ fn bool drag_start(String[] mimes, char[][] datas) @feat(LINUX) => @pool()
 	}
 	return bmu_start_drag((CInt)mimes.len, &m, &d, &n) == 1;
 }
+
+<*
+ True while the clipboard still holds this app's last clipboard_set_data: no other window or app copied since,
+ and no rl::set_clipboard_text replaced it. Asks nobody (no IPC), so it is cheap enough per frame or on focus.
+*>
+fn bool clipboard_owned() @feat(!LINUX) => false;
+fn bool clipboard_owned() @feat(LINUX) => bmu_clipboard_owned() == 1;
 
 <* True while a drag_start() drag is in progress. *>
 fn bool dragging_out() @feat(!LINUX) => false;
