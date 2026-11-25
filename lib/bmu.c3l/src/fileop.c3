@@ -16,6 +16,9 @@ import bmu::txt, bmu::sys, bmu::archive;
 //   4. Commit (not cancellable, fast): temporaries are renamed into place without overwriting
 //      (renameat2 RENAME_NOREPLACE); a replaced item is moved aside first and deleted only afterwards.
 //      Cross-filesystem moves call syncfs() on the target before the sources are deleted.
+// Copied data is flushed to the target disk while copying (syncfs every FLUSH_STEP bytes, and once more before
+// the commit), and progress counts flushed bytes: the bar follows the disk's real speed, cancel works the
+// whole time, and the commit never waits for gigabytes still in the page cache.
 // TRASH follows the freedesktop.org Trash spec (home trash only). DELETE is permanent.
 // EXTRACT unpacks an archive (bmu::archive) into a hidden staging folder in the target, then commits the
 // staged items like a same-filesystem MOVE (conflicts asked, rollback on cancel, staging always removed).
@@ -74,6 +77,7 @@ const int MAX_ITEMS = 16384;     // top-level items per job
 const int MAX_DEPTH = 128;       // folder nesting below an item
 const usz CHUNK = 4 * 1024 * 1024; // bytes per copy step (cancel / progress granularity)
 const usz FALLBACK_BUF = 1024 * 1024;
+const ulong FLUSH_STEP = 32 * 1024 * 1024; // copied bytes between flushes to the target disk
 
 enum Kind { COPY, MOVE, TRASH, DELETE, COUNT, RESTORE, EXTRACT }
 enum State { IDLE, SCANNING, RUNNING, CONFLICT, FINISHING, DONE, CANCELLED, FAILED }
@@ -136,6 +140,7 @@ struct Job
 	Item* items;
 	int count;
 	char* buf;
+	ulong unflushed;     // copied bytes not yet flushed to the target disk (not yet counted as done)
 	int pid;
 	bool elevated;       // run through the root helper (start_elevated)
 	char[512] secret;    // password for sudo; wiped as soon as it is written
@@ -239,6 +244,7 @@ fn bool begin(Job* self, Kind kind, String src_dir, String[] names, String dst_d
 	self.answered = false;
 	self.has_all = false;
 	self.p = { .state = SCANNING, .kind = kind, .items = (int)names.len, .can_cancel = true };
+	self.unflushed = 0;
 	if (catch self.worker.create(&work, self))
 	{
 		self.wake.destroy(); self.mutex.destroy();
@@ -534,6 +540,23 @@ fn void set_times(ZString path, libc::Stat* st) @private
 	c_utimensat(AT_FDCWD, path, &t, AT_SYMLINK_NOFOLLOW);
 }
 
+<* Wait until everything written to `fd`'s filesystem is on the disk, then count the copied bytes as done. *>
+fn void flush(Job* j, CInt fd) @private
+{
+	if (fd >= 0) c_syncfs(fd);
+	add_done(j, 0, j.unflushed);
+	j.unflushed = 0;
+}
+
+<* Flush what is left of the copies (before the commit; still cancellable). *>
+fn void flush_target(Job* j) @private
+{
+	if (!j.unflushed) return;
+	CInt fd = sys::c_open(zp(&j.dst_dir), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+	flush(j, fd);
+	if (fd >= 0) sys::c_close(fd);
+}
+
 <* Copy one regular file j.sp -> j.dp (created exclusively). *>
 fn bool copy_file(Job* j, libc::Stat* st) @private
 {
@@ -587,7 +610,8 @@ fn bool copy_file(Job* j, libc::Stat* st) @private
 		}
 		if (n == 0) break;
 		copied += (ulong)n;
-		add_done(j, 0, (ulong)n);
+		j.unflushed += (ulong)n;
+		if (j.unflushed >= FLUSH_STEP) flush(j, out);
 	}
 	c_fchmod(out, st.st_mode & 0o7777);
 	Timespec[2] t = { { st.st_atime, st.st_atime_nsec }, { st.st_mtime, st.st_mtime_nsec } };
@@ -884,6 +908,8 @@ fn State transfer(Job* j) @private
 		it.started = true;
 		if (!copy_tree(j, 0)) return rollback(j);
 	}
+	flush_target(j);
+	if (stopped(j)) return rollback(j);
 	// 4. Commit: not cancellable.
 	set_state(j, FINISHING, false);
 	bool ok = true;

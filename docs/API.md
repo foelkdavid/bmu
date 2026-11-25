@@ -547,6 +547,9 @@ How it stays safe (COPY / MOVE are all-or-nothing):
 - Cancel or an error before the commit removes the temporaries, renames moved items back and restores replaced
   ones; sources are never touched. The commit renames temporaries into place without overwriting
   (`renameat2(RENAME_NOREPLACE)`); a replaced target is moved aside first and deleted only afterwards.
+- Copied data is flushed to the target disk while copying (`syncfs` every 32 MiB and before the commit); `bytes_done`
+  counts flushed bytes, so progress follows the disk's real speed, cancel works until the commit, and the commit
+  never waits for data still in the page cache.
 - Cross-filesystem moves `syncfs` the target before deleting the sources. If the commit fails part way, finished
   items stay, the rest is undone and no source is deleted: nothing is lost, at worst something exists twice.
 - `TRASH` follows the freedesktop.org Trash spec (`files/` + `info/NAME.trashinfo`, collisions become `NAME.2`);
