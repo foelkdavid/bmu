@@ -1,0 +1,19 @@
+# A seat without a keyboard (headless compositor for screenshots, touch-only kiosk) has no xkb keymap; GLFW's
+# glfwGetKeyName crashed in xkb_state_key_get_layout(NULL) when bmu maps the layout at startup. Return no name.
+# Applied by build-raylib.sh.
+diff --git src/external/glfw/src/wl_window.c src/external/glfw/src/wl_window.c
+index 505166e..83f6324 100644
+--- a/src/external/glfw/src/wl_window.c
++++ b/src/external/glfw/src/wl_window.c
+@@ -2691,6 +2691,11 @@ const char* _glfwGetScancodeNameWayland(int scancode)
+     if (key == GLFW_KEY_UNKNOWN)
+         return NULL;
+ 
++    // bmu patch: a seat without a keyboard (headless compositor, touch-only kiosk) has no keymap yet;
++    // xkb_state_key_get_layout(NULL, ...) crashed here. No keymap = no key name.
++    if (!_glfw.wl.xkb.state || !_glfw.wl.xkb.keymap)
++        return NULL;
++
+     const xkb_keycode_t keycode = scancode + 8;
+     const xkb_layout_index_t layout =
+         xkb_state_key_get_layout(_glfw.wl.xkb.state, keycode);
