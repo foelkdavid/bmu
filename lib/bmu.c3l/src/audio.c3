@@ -171,7 +171,7 @@ fn void Device.close(&self)
 	self.output_count = 0;
 }
 
-fn bool Device.fail(&self, String what, CInt r) @private => @pool()
+fn bool Device.fail(&self, String what, CInt r) => @pool()
 {
 	txt::set(&self.error, r ? string::tformat("%s: %s", what, ma_result_description(r)) : what);
 	return false;
