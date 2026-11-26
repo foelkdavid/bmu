@@ -246,7 +246,7 @@ if (enter) submit();
 |---|---|
 | `int focus` | Focused input id, −1 = none. `ui::focus >= 0` ⇒ the user is typing: skip your single-key shortcuts. |
 | `fn bool focused(int id)` | |
-| `fn void focus_on(int id, char[] buf)` | Focus a field from code (e.g. Ctrl+F); selects all its text. |
+| `fn void focus_on(int id, char[] buf, sz select_end = -1)` | Focus a field from code (e.g. Ctrl+F); selects all its text, or only its first `select_end` bytes (a rename dialog: the name without its extension; the caret ends there). |
 | `fn void unfocus()` | |
 
 Gotchas: ids must be unique among fields drawn in the same frame, and the same field must keep its id every frame.

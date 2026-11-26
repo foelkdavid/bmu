@@ -188,6 +188,15 @@ fn void check_edit()
 	txt::set(&tiny, "ab");
 	ui::caret = 2;
 	expect(!ui::insert_byte(&tiny, 'c'), "insert_byte refuses when full");
+
+	txt::set(&b, "photo.png");
+	ui::focus_on(7, &b);
+	expect(ui::anchor == 0 && ui::caret == 9, "focus_on selects all");
+	ui::focus_on(7, &b, 5);
+	expect(ui::anchor == 0 && ui::caret == 5, "focus_on selects the first bytes");
+	ui::focus_on(7, &b, 40);
+	expect(ui::caret == 9, "focus_on clamps select_end");
+	ui::unfocus();
 }
 
 fn void check_wrap()

@@ -588,11 +588,14 @@ double last_edit_time;
 
 fn bool focused(int id) => focus == id;
 fn void unfocus() => focus = -1;
-fn void focus_on(int id, char[] buf)
+<* Focus a field from code; selects its text, or only bytes [0, select_end) when select_end >= 0 (e.g. a file
+   name without its extension). *>
+fn void focus_on(int id, char[] buf, sz select_end = -1)
 {
 	focus = id;
-	caret = txt::view(buf).len;
-	anchor = 0;            // focusing via shortcut selects everything
+	usz len = txt::view(buf).len;
+	caret = select_end >= 0 && (usz)select_end < len ? (usz)select_end : len;
+	anchor = 0;            // focusing via shortcut selects everything (or the first select_end bytes)
 	caret_blink = now;
 	input_off = 0;
 	undo_count = 0;
