@@ -114,6 +114,11 @@ fn void check_sys() => @pool()
 	expect(sys::list_dir(txt::join(root, "missing"), &e, false) == -1, "list_dir missing = -1");
 	expect(sys::move(txt::join(root, "A.txt"), txt::join(root, "c.txt")), "move");
 	expect(!sys::exists(txt::join(root, "A.txt")) && sys::exists(txt::join(root, "c.txt")), "move result");
+	expect(!sys::move_noreplace(txt::join(root, "c.txt"), txt::join(root, "b.txt")) && libc::errno() == 17, "move_noreplace refuses an existing name");
+	expect_str(sys::read_tail(txt::join(root, "b.txt"), 5), "world", "move_noreplace kept the target");
+	expect(sys::move_noreplace(txt::join(root, "c.txt"), txt::join(root, "d.txt")), "move_noreplace");
+	expect(!sys::exists(txt::join(root, "c.txt")) && sys::exists(txt::join(root, "d.txt")), "move_noreplace result");
+	expect(sys::move_noreplace(txt::join(root, "d.txt"), txt::join(root, "c.txt")), "move_noreplace back");
 	expect(sys::home().len > 0, "home");
 	char[1024] rp;
 	sys::realpath(&rp, txt::join(root, "x/y/.."));

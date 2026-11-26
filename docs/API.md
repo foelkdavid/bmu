@@ -434,6 +434,7 @@ Module `bmu::sys`. Linux x86_64 (glibc or musl; `Dirent` layout is hard-coded).
 | `fn bool exists(String p)`, `is_dir`, `is_file`, `is_exec` | stat-based (symlinks followed). |
 | `fn bool mkdirs(String p)` | `mkdir -p` (0755); true if the dir exists afterwards. Paths up to 1023 bytes. |
 | `fn bool move(String from, String to)` | `rename(2)`: same file system only; won't replace a non-empty dir. |
+| `fn bool move_noreplace(String from, String to)`, `move_noreplace_z(ZString, ZString)` | Linux. Rename that never replaces an existing `to` (`renameat2` `RENAME_NOREPLACE`): false with errno 17 (EEXIST) when the name is taken, else rename's errno. File systems without it: `lstat` check, then `rename` (small race). For "Rename" in a file manager. |
 | `fn void realpath(char[] out, String p)` | Resolve symlinks / `..`; the input when it does not exist. |
 | `fn String home()`, `fn String env(String name)` | `$HOME` ("/" if unset), any variable ("" if unset). |
 | `fn long now()` | Unix time in seconds. |

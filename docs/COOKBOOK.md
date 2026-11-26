@@ -5,7 +5,7 @@ last recipe runs a small app that uses most of them: copy freely.
 
 ```c3
 module cookbook;
-import std::io, std::math, std::core::string, std::core::dstring, std::atomic;
+import std::io, std::math, std::core::string, std::core::dstring, std::atomic, libc;
 import raylib6::rl;
 import bmu::ui, bmu::txt, bmu::sys, bmu::picker, bmu::places, bmu::image, bmu::fileop, bmu::audio;
 ```
@@ -292,6 +292,22 @@ fn void settings_load() => @pool()
 
 Use it: `settings_load(); ui::open("My App", 1000, 700, 700, 450, settings.ui_scale);` and in the loop
 `if (ui::zoom_changed) { settings.ui_scale = ui::scale; settings_save(); }`.
+
+## Rename without replacing
+
+A "Rename" dialog must never overwrite an item that already has the new name. One syscall on the UI thread, from the
+user's action (not per frame); a taken name keeps the dialog open with a message.
+
+```c3
+fn String rename_item(String dir, String old_name, String new_name) => @pool()
+{
+	if (!new_name.len || new_name == "." || new_name == ".." || new_name.contains("/")) return "Not a valid name";
+	if (new_name == old_name) return "";
+	if (sys::move_noreplace(txt::join(dir, old_name), txt::join(dir, new_name))) return "";
+	int e = (int)libc::errno();
+	return e == 17 ? "Something with this name already exists" : e == 13 || e == 1 ? "Permission denied" : "Could not rename it";
+}
+```
 
 ## Debounced autosave
 

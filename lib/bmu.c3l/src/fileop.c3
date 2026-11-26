@@ -67,7 +67,6 @@ const CInt EXDEV @private = 18;
 const CInt EINVAL @private = 22;
 const CInt ENOSYS @private = 38;
 const CInt EOPNOTSUPP @private = 95;
-const long SYS_RENAMEAT2 @private = 316; // x86_64
 const uint S_IFMT @private = 0xF000;
 const uint S_IFREG @private = 0x8000;
 const uint S_IFDIR @private = 0x4000;
@@ -796,16 +795,7 @@ fn void pop(char[] buf, usz* len, usz to) @private
 fn ZString zp(char[] buf) @private => (ZString)&buf[0];
 
 <* rename without replacing the target; EEXIST when it exists. *>
-fn bool rename_noreplace(ZString from, ZString to) @private
-{
-	if (c_syscall(SYS_RENAMEAT2, (long)AT_FDCWD, from, (long)AT_FDCWD, to, 1L) == 0) return true;
-	CInt e = *c_errno();
-	if (e != EINVAL && e != ENOSYS) return false;
-	// Filesystem without RENAME_NOREPLACE: check, then rename (small race, documented).
-	libc::Stat st;
-	if (c_lstat(to, &st) == 0) { *c_errno() = EEXIST; return false; }
-	return sys::c_rename(from, to) == 0;
-}
+fn bool rename_noreplace(ZString from, ZString to) @private => sys::move_noreplace_z(from, to);
 
 <* Temporary sibling names: kind "part" (new copy) or "old" (replaced target), unique per process + item. *>
 fn bool temp_path(Job* j, int i, String kind, char[] out) @private => @pool()

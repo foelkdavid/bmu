@@ -297,6 +297,27 @@ fn bool move(String from, String to) => @pool()
 	return c_rename(from.zstr_tcopy(), to.zstr_tcopy()) == 0;
 }
 
+extern fn long c_syscall_rename(long n, ...) @cname("syscall") @feat(LINUX) @private;
+extern fn CInt c_lstat_rename(ZString path, libc::Stat* st) @cname("lstat") @feat(LINUX) @private;
+extern fn CInt* c_errno_rename() @cname("__errno_location") @feat(LINUX) @private;
+
+<* rename(2) that never replaces an existing `to` (renameat2 RENAME_NOREPLACE): false with errno EEXIST (17) when
+   something has that name. File systems without RENAME_NOREPLACE: lstat check, then rename (a small race). *>
+fn bool move_noreplace(String from, String to) @feat(LINUX) => @pool()
+{
+	return move_noreplace_z(from.zstr_tcopy(), to.zstr_tcopy());
+}
+
+fn bool move_noreplace_z(ZString from, ZString to) @feat(LINUX)
+{
+	if (c_syscall_rename(316, (long)-100, from, (long)-100, to, 1L) == 0) return true; // x86_64 renameat2, AT_FDCWD
+	CInt e = *c_errno_rename();
+	if (e != 22 && e != 38) return false; // EINVAL / ENOSYS: no RENAME_NOREPLACE here
+	libc::Stat st;
+	if (c_lstat_rename(to, &st) == 0) { *c_errno_rename() = 17; return false; }
+	return c_rename(from, to) == 0;
+}
+
 fn bool write_file(String path, String data)
 {
 	if (catch file::save(path, data)) return false;

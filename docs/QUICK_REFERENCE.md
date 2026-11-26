@@ -148,7 +148,7 @@ fn void main(String[] args)
 | `file_uri(path)`, `uri_path(uri)` | path ↔ `file://` URI, percent-encoded (temp) |
 | `pretty_name(&out, raw)`, `slug(&out, name, fallback="item")` | "Some_Name.exe"→"Some Name"; "Some Name!"→"some-name" |
 | **sys** (`sys::`) — Linux | |
-| `exists`, `is_dir`, `is_file`, `is_exec`, `mkdirs`, `move`, `realpath(&out, p)` | file system |
+| `exists`, `is_dir`, `is_file`, `is_exec`, `mkdirs`, `move`, `move_noreplace(from, to)` (never replaces; errno 17 = taken), `realpath(&out, p)` | file system |
 | `home()`, `env(name)`, `now()` (unix seconds) | environment |
 | `list_dir(dir, Entry[] out, hidden) -> int` | dirs first, sorted; −1 = can't open; `Entry.name` (`char[256]`), `Entry.dir` |
 | `DirWatch.watch(dir)`, `.changed()`, `.close()` | notice entries added/removed/renamed in one folder (inotify; `changed()` is a non-blocking read, fine per frame) |
